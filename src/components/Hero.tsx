@@ -1,8 +1,10 @@
 import { ArrowRight, Sparkles } from "lucide-react";
+import { useNavigate } from "react-router-dom";
 import { Button } from "./ui/button";
 import DemoWindow from "./DemoWindow";
 
 const Hero = () => {
+  const navigate = useNavigate();
   return (
     <section className="relative min-h-screen flex flex-col items-center justify-center px-4 py-20 overflow-hidden">
       {/* Background Effects */}
@@ -52,11 +54,11 @@ const Hero = () => {
           className="flex flex-col sm:flex-row items-center justify-center gap-4 mb-16 animate-slide-up"
           style={{ animationDelay: "200ms" }}
         >
-          <Button variant="hero" size="xl">
+          <Button variant="hero" size="xl" onClick={() => navigate("/auth")}>
             Start Analyzing
             <ArrowRight className="w-5 h-5 ml-1" />
           </Button>
-          <Button variant="outline" size="lg">
+          <Button variant="outline" size="lg" onClick={() => navigate("/auth")}>
             View Documentation
           </Button>
         </div>
