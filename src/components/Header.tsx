@@ -1,7 +1,10 @@
 import { Code2, Github } from "lucide-react";
+import { useNavigate } from "react-router-dom";
 import { Button } from "./ui/button";
 
 const Header = () => {
+  const navigate = useNavigate();
+
   return (
     <header className="fixed top-0 left-0 right-0 z-50 border-b border-border/50 bg-background/80 backdrop-blur-lg">
       <div className="max-w-6xl mx-auto px-4 h-16 flex items-center justify-between">
@@ -33,7 +36,7 @@ const Header = () => {
           <Button variant="ghost" size="icon">
             <Github className="w-5 h-5" />
           </Button>
-          <Button variant="default" size="sm">
+          <Button variant="default" size="sm" onClick={() => navigate("/auth")}>
             Get Started
           </Button>
         </div>
