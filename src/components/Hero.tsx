@@ -14,16 +14,16 @@ const Hero = () => {
 
     setIsLoading(true);
     try {
-      // 1. CALL THE LIVE AI FUNCTION
-      // ✅ Using the dash to match your dashboard name "analyze-repo-"
+      // 1. CALL THE EDGE FUNCTION
+      // ✅ Matches your dashboard name exactly
       const { data: aiResponse, error: aiError } = await supabase.functions.invoke("analyze-repo-", {
         body: { url: url },
       });
 
       if (aiError) throw new Error("AI Analysis failed: " + aiError.message);
 
-      // 2. SAVE THE REAL RESULT TO YOUR DATABASE
-      // ✅ 'as any' prevents Lovable from deleting this code during auto-fix
+      // 2. SAVE TO DATABASE
+      // ✅ The 'as any' is CRITICAL here to prevent Lovable from reverting this code
       const { error: dbError } = await (supabase.from("repositories") as any).insert([
         {
           repo_url: url,
@@ -35,11 +35,9 @@ const Hero = () => {
 
       toast.success("Analysis complete and saved!");
       setUrl("");
-
-      // 3. REFRESH PAGE
       window.location.reload();
     } catch (error: any) {
-      console.error("Full error details:", error);
+      console.error("Connection details:", error);
       toast.error("Error: " + error.message);
     } finally {
       setIsLoading(false);
@@ -52,17 +50,13 @@ const Hero = () => {
         <h1 className="text-5xl md:text-7xl font-bold mb-6 tracking-tight">
           Understand any codebase <span className="text-primary">instantly</span>
         </h1>
-        <p className="text-lg text-muted-foreground mb-10 max-w-2xl mx-auto">
-          Paste a GitHub repository link and let our AI document the architecture, patterns, and logic for you.
-        </p>
-
         <form onSubmit={handleAnalyze} className="flex flex-col md:flex-row gap-4 max-w-2xl mx-auto">
           <Input
             placeholder="https://github.com/username/repo"
             value={url}
             onChange={(e) => setUrl(e.target.value)}
-            className="flex-1 glass-card"
             disabled={isLoading}
+            className="glass-card"
           />
           <Button type="submit" size="lg" disabled={isLoading} className="px-8">
             {isLoading ? "Analyzing..." : "Analyze Repo"}
