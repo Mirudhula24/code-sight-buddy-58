@@ -14,13 +14,17 @@ const Hero = () => {
 
     setIsLoading(true);
     try {
-      // 1. CALL THE LIVE AI FUNCTION YOU DEPLOYED
-      // This sends the URL to your 'analyze-repo' Edge Function
-      const { data: aiResponse, error: aiError } = await supabase.functions.invoke("analyze-repo", {
+      // 1. CALL THE LIVE AI FUNCTION
+      // We use 'analyze-repo-' with the dash to match your dashboard name exactly
+      const { data: aiResponse, error: aiError } = await supabase.functions.invoke("analyze-repo-", {
         body: { url: url },
       });
 
-      if (aiError) throw new Error("AI Analysis failed: " + aiError.message);
+      // Handle cases where the Edge Function returns an error
+      if (aiError) {
+        console.error("Supabase Function Error:", aiError);
+        throw new Error("AI Analysis failed: " + aiError.message);
+      }
 
       // 2. SAVE THE REAL RESULT TO YOUR DATABASE
       const { error: dbError } = await supabase.from("repositories").insert([
@@ -36,7 +40,7 @@ const Hero = () => {
       setUrl("");
 
       // 3. REFRESH PAGE
-      // This tells the app to fetch the new data so it shows up in your list
+      // This allows the app to fetch new history data immediately
       window.location.reload();
     } catch (error: any) {
       toast.error("Error: " + error.message);
