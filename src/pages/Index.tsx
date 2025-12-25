@@ -6,7 +6,7 @@ const corsHeaders = {
 };
 
 serve(async (req) => {
-  // ✅ FIX 1: Handle the browser's security "preflight" check
+  // ✅ Handle CORS preflight (prevents errors in browser)
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
   }
@@ -15,9 +15,7 @@ serve(async (req) => {
     const { url } = await req.json();
     const openAiKey = Deno.env.get("OPENAI_API_KEY");
 
-    if (!openAiKey) {
-      throw new Error("Missing OPENAI_API_KEY secret in Supabase dashboard.");
-    }
+    if (!openAiKey) throw new Error("Missing OPENAI_API_KEY secret.");
 
     const response = await fetch("https://api.openai.com/v1/chat/completions", {
       method: "POST",
@@ -27,25 +25,21 @@ serve(async (req) => {
       },
       body: JSON.stringify({
         model: "gpt-4o",
-        messages: [
-          { role: "system", content: "You are a technical architect. Summarize this GitHub repo in 3 sentences." },
-          { role: "user", content: `Analyze: ${url}` },
-        ],
+        messages: [{ role: "user", content: `Analyze this repo: ${url}` }],
       }),
     });
 
     const aiData = await response.json();
-    if (aiData.error) throw new Error(aiData.error.message);
-
     const summary = aiData.choices[0].message.content;
 
     return new Response(JSON.stringify({ summary }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
+      status: 200,
     });
   } catch (error) {
     return new Response(JSON.stringify({ error: error.message }), {
-      status: 500,
       headers: { ...corsHeaders, "Content-Type": "application/json" },
+      status: 500,
     });
   }
 });
