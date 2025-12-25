@@ -14,19 +14,13 @@ const Hero = () => {
 
     setIsLoading(true);
     try {
-      // 1. CALL THE LIVE AI FUNCTION
-      // We use 'analyze-repo-' with the dash to match your dashboard name exactly
+      // ✅ FIX 2: Added the trailing dash '-' to match your Dashboard name exactly
       const { data: aiResponse, error: aiError } = await supabase.functions.invoke("analyze-repo-", {
         body: { url: url },
       });
 
-      // Handle cases where the Edge Function returns an error
-      if (aiError) {
-        console.error("Supabase Function Error:", aiError);
-        throw new Error("AI Analysis failed: " + aiError.message);
-      }
+      if (aiError) throw new Error("AI Analysis failed: " + aiError.message);
 
-      // 2. SAVE THE REAL RESULT TO YOUR DATABASE
       const { error: dbError } = await supabase.from("repositories").insert([
         {
           repo_url: url,
@@ -38,12 +32,10 @@ const Hero = () => {
 
       toast.success("Analysis complete and saved!");
       setUrl("");
-
-      // 3. REFRESH PAGE
-      // This allows the app to fetch new history data immediately
       window.location.reload();
     } catch (error: any) {
       toast.error("Error: " + error.message);
+      console.error(error);
     } finally {
       setIsLoading(false);
     }
@@ -56,7 +48,7 @@ const Hero = () => {
           Understand any codebase <span className="text-primary">instantly</span>
         </h1>
         <p className="text-lg text-muted-foreground mb-10 max-w-2xl mx-auto">
-          Paste a GitHub repository link and let our AI document the architecture, patterns, and logic for you.
+          Paste a GitHub repository link and let our AI document the architecture for you.
         </p>
 
         <form onSubmit={handleAnalyze} className="flex flex-col md:flex-row gap-4 max-w-2xl mx-auto">
