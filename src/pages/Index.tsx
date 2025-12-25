@@ -6,7 +6,7 @@ const corsHeaders = {
 };
 
 serve(async (req) => {
-  // ✅ Handle CORS preflight (prevents errors in browser)
+  // ✅ HANDLE PREFLIGHT: This tells the browser your site is allowed to call this function
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
   }
@@ -15,7 +15,7 @@ serve(async (req) => {
     const { url } = await req.json();
     const openAiKey = Deno.env.get("OPENAI_API_KEY");
 
-    if (!openAiKey) throw new Error("Missing OPENAI_API_KEY secret.");
+    if (!openAiKey) throw new Error("Missing OPENAI_API_KEY in secrets.");
 
     const response = await fetch("https://api.openai.com/v1/chat/completions", {
       method: "POST",
@@ -34,7 +34,6 @@ serve(async (req) => {
 
     return new Response(JSON.stringify({ summary }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
-      status: 200,
     });
   } catch (error) {
     return new Response(JSON.stringify({ error: error.message }), {

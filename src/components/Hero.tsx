@@ -1,71 +1,23 @@
-import { useState } from "react";
-import { supabase } from "@/integrations/supabase/client";
-import { Button } from "./ui/button";
-import { Input } from "./ui/input";
-import { toast } from "sonner";
+// Inside handleAnalyze in Hero.tsx
+try {
+  // ✅ Call the new function name exactly
+  const { data: aiResponse, error: aiError } = await supabase.functions.invoke("analyze-repo", {
+    body: { url: url },
+  });
 
-const Hero = () => {
-  const [url, setUrl] = useState("");
-  const [isLoading, setIsLoading] = useState(false);
+  if (aiError) throw new Error("AI Analysis failed: " + aiError.message);
 
-  const handleAnalyze = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!url) return toast.error("Please enter a GitHub URL");
+  // Save to database
+  const { error: dbError } = await supabase.from("repositories").insert([
+    {
+      repo_url: url,
+      summary: aiResponse.summary,
+    },
+  ]);
 
-    setIsLoading(true);
-    try {
-      // ✅ FIX 2: Added the trailing dash '-' to match your Dashboard name exactly
-      const { data: aiResponse, error: aiError } = await supabase.functions.invoke("analyze-repo-", {
-        body: { url: url },
-      });
-
-      if (aiError) throw new Error("AI Analysis failed: " + aiError.message);
-
-      const { error: dbError } = await supabase.from("repositories").insert([
-        {
-          repo_url: url,
-          summary: aiResponse.summary,
-        },
-      ]);
-
-      if (dbError) throw dbError;
-
-      toast.success("Analysis complete and saved!");
-      setUrl("");
-      window.location.reload();
-    } catch (error: any) {
-      toast.error("Error: " + error.message);
-      console.error(error);
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  return (
-    <section className="pt-32 pb-16 px-4">
-      <div className="max-w-4xl mx-auto text-center">
-        <h1 className="text-5xl md:text-7xl font-bold mb-6 tracking-tight">
-          Understand any codebase <span className="text-primary">instantly</span>
-        </h1>
-        <p className="text-lg text-muted-foreground mb-10 max-w-2xl mx-auto">
-          Paste a GitHub repository link and let our AI document the architecture for you.
-        </p>
-
-        <form onSubmit={handleAnalyze} className="flex flex-col md:flex-row gap-4 max-w-2xl mx-auto">
-          <Input
-            placeholder="https://github.com/username/repo"
-            value={url}
-            onChange={(e) => setUrl(e.target.value)}
-            className="flex-1 glass-card"
-            disabled={isLoading}
-          />
-          <Button type="submit" size="lg" disabled={isLoading} className="px-8">
-            {isLoading ? "Analyzing..." : "Analyze Repo"}
-          </Button>
-        </form>
-      </div>
-    </section>
-  );
-};
-
-export default Hero;
+  if (dbError) throw dbError;
+  toast.success("Analysis complete!");
+  window.location.reload();
+} catch (error: any) {
+  toast.error("Error: " + error.message);
+}
