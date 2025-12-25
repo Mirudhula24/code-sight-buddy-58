@@ -10,7 +10,7 @@ const Index = () => {
 
   useEffect(() => {
     const fetchHistory = async () => {
-      // ✅ 'as any' bypasses the 'never' type error in the Lovable sidebar
+      // ✅ Using 'as any' bypasses the sync error
       const { data, error } = await (supabase.from("repositories") as any)
         .select("*")
         .order("created_at", { ascending: false });
