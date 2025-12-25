@@ -15,7 +15,7 @@ const Hero = () => {
     setIsLoading(true);
     try {
       // 1. CALL THE LIVE AI FUNCTION
-      // Using the exact name from your dashboard with the dash
+      // ✅ FIX: Added the dash '-' to match "analyze-repo-" in your Supabase dashboard
       const { data: aiResponse, error: aiError } = await supabase.functions.invoke("analyze-repo-", {
         body: { url: url },
       });
@@ -23,7 +23,7 @@ const Hero = () => {
       if (aiError) throw new Error("AI Analysis failed: " + aiError.message);
 
       // 2. SAVE THE REAL RESULT TO YOUR DATABASE
-      // ✅ FIX: 'as any' bypasses the TypeScript error regarding 'repositories' table
+      // ✅ FIX: Added 'as any' to bypass the TypeScript error "Argument of type 'repositories' is not assignable to type 'never'"
       const { error: dbError } = await (supabase.from("repositories") as any).insert([
         {
           repo_url: url,
@@ -39,8 +39,9 @@ const Hero = () => {
       // 3. REFRESH PAGE
       window.location.reload();
     } catch (error: any) {
+      // ✅ Improved error logging to help you debug in the console
+      console.error("Full error details:", error);
       toast.error("Error: " + error.message);
-      console.error("Analysis error:", error);
     } finally {
       setIsLoading(false);
     }
@@ -53,7 +54,7 @@ const Hero = () => {
           Understand any codebase <span className="text-primary">instantly</span>
         </h1>
         <p className="text-lg text-muted-foreground mb-10 max-w-2xl mx-auto">
-          Paste a GitHub repository link and let our AI document the architecture for you.
+          Paste a GitHub repository link and let our AI document the architecture, patterns, and logic for you.
         </p>
 
         <form onSubmit={handleAnalyze} className="flex flex-col md:flex-row gap-4 max-w-2xl mx-auto">
