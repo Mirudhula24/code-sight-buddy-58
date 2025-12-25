@@ -15,15 +15,15 @@ const Hero = () => {
     setIsLoading(true);
     try {
       // 1. CALL THE LIVE AI FUNCTION
-      // Ensure this matches your dashboard: "analyze-repo-"
+      // Using the exact name from your dashboard with the dash
       const { data: aiResponse, error: aiError } = await supabase.functions.invoke("analyze-repo-", {
         body: { url: url },
       });
 
       if (aiError) throw new Error("AI Analysis failed: " + aiError.message);
 
-      // 2. SAVE THE RESULT TO DATABASE
-      // ✅ FIX: Use 'as any' to bypass the TypeScript 'never' error for 'repositories'
+      // 2. SAVE THE REAL RESULT TO YOUR DATABASE
+      // ✅ FIX: 'as any' bypasses the TypeScript error regarding 'repositories' table
       const { error: dbError } = await (supabase.from("repositories") as any).insert([
         {
           repo_url: url,
@@ -40,7 +40,7 @@ const Hero = () => {
       window.location.reload();
     } catch (error: any) {
       toast.error("Error: " + error.message);
-      console.error(error);
+      console.error("Analysis error:", error);
     } finally {
       setIsLoading(false);
     }
@@ -53,7 +53,7 @@ const Hero = () => {
           Understand any codebase <span className="text-primary">instantly</span>
         </h1>
         <p className="text-lg text-muted-foreground mb-10 max-w-2xl mx-auto">
-          Paste a GitHub repository link and let our AI document the architecture, patterns, and logic for you.
+          Paste a GitHub repository link and let our AI document the architecture for you.
         </p>
 
         <form onSubmit={handleAnalyze} className="flex flex-col md:flex-row gap-4 max-w-2xl mx-auto">
