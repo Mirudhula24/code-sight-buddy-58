@@ -1,75 +1,71 @@
-import { ArrowRight, Sparkles } from "lucide-react";
-import { useNavigate } from "react-router-dom";
+import { useState } from "react";
+import { supabase } from "@/integrations/supabase/client"; // Import our secure client
 import { Button } from "./ui/button";
-import DemoWindow from "./DemoWindow";
+import { Input } from "./ui/input";
+import { toast } from "sonner"; // Common in Lovable for notifications
 
 const Hero = () => {
-  const navigate = useNavigate();
+  const [url, setUrl] = useState("");
+  const [isLoading, setIsLoading] = useState(false);
+
+  const handleAnalyze = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!url) return toast.error("Please enter a GitHub URL");
+
+    setIsLoading(true);
+    try {
+      // 1. YOUR AI LOGIC GOES HERE
+      // For now, we simulate an AI summary.
+      // Later, you'll replace this with your actual AI API call.
+      const mockAiSummary =
+        "This repository contains a React-based frontend using Tailwind CSS. The architecture follows a component-based pattern with centralized state management.";
+
+      // 2. SAVE TO SUPABASE
+      const { error } = await supabase.from("repositories").insert([
+        {
+          repo_url: url,
+          summary: mockAiSummary,
+          // Note: user_id is auto-filled by the DB default auth.uid() we set earlier!
+        },
+      ]);
+
+      if (error) throw error;
+
+      toast.success("Analysis complete and saved to history!");
+      setUrl(""); // Clear the input
+
+      // 3. REFRESH PAGE
+      // This triggers the useEffect in Index.tsx to show the new card immediately
+      window.location.reload();
+    } catch (error: any) {
+      toast.error("Error: " + error.message);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   return (
-    <section className="relative min-h-screen flex flex-col items-center justify-center px-4 py-20 overflow-hidden">
-      {/* Background Effects */}
-      <div className="absolute inset-0 gradient-hero" />
-      <div className="absolute top-1/4 left-1/4 w-96 h-96 bg-primary/10 rounded-full blur-3xl animate-pulse-glow" />
-      <div className="absolute bottom-1/4 right-1/4 w-64 h-64 bg-accent/10 rounded-full blur-3xl animate-pulse-glow" style={{ animationDelay: "1.5s" }} />
-      
-      {/* Grid Pattern */}
-      <div 
-        className="absolute inset-0 opacity-[0.03]"
-        style={{
-          backgroundImage: `linear-gradient(hsl(var(--primary)) 1px, transparent 1px), linear-gradient(90deg, hsl(var(--primary)) 1px, transparent 1px)`,
-          backgroundSize: '60px 60px'
-        }}
-      />
-
-      <div className="relative z-10 max-w-6xl mx-auto">
-        {/* Badge */}
-        <div className="flex justify-center mb-8 animate-fade-in">
-          <div className="flex items-center gap-2 px-4 py-2 rounded-full border border-primary/30 bg-primary/10 backdrop-blur-sm">
-            <Sparkles className="w-4 h-4 text-primary" />
-            <span className="text-sm text-primary font-medium">AI-Powered Code Intelligence</span>
-          </div>
-        </div>
-
-        {/* Heading */}
-        <h1 className="text-center mb-6 animate-slide-up">
-          <span className="block text-5xl md:text-6xl lg:text-7xl font-bold text-foreground mb-2">
-            Understand Any
-          </span>
-          <span className="block text-5xl md:text-6xl lg:text-7xl font-bold gradient-text">
-            Codebase Instantly
-          </span>
+    <section className="pt-32 pb-16 px-4">
+      <div className="max-w-4xl mx-auto text-center">
+        <h1 className="text-5xl md:text-7xl font-bold mb-6 tracking-tight">
+          Understand any codebase <span className="text-primary">instantly</span>
         </h1>
-
-        {/* Subtitle */}
-        <p 
-          className="text-center text-lg md:text-xl text-muted-foreground max-w-2xl mx-auto mb-10 animate-slide-up"
-          style={{ animationDelay: "100ms" }}
-        >
-          CodeSight analyzes your repositories to generate architecture overviews, 
-          dependency maps, and intelligent documentation — all powered by AI.
+        <p className="text-lg text-muted-foreground mb-10 max-w-2xl mx-auto">
+          Paste a GitHub repository link and let our AI document the architecture, patterns, and logic for you.
         </p>
 
-        {/* CTA Buttons */}
-        <div 
-          className="flex flex-col sm:flex-row items-center justify-center gap-4 mb-16 animate-slide-up"
-          style={{ animationDelay: "200ms" }}
-        >
-          <Button variant="hero" size="xl" onClick={() => navigate("/auth")}>
-            Start Analyzing
-            <ArrowRight className="w-5 h-5 ml-1" />
+        <form onSubmit={handleAnalyze} className="flex flex-col md:flex-row gap-4 max-w-2xl mx-auto">
+          <Input
+            placeholder="https://github.com/username/repo"
+            value={url}
+            onChange={(e) => setUrl(e.target.value)}
+            className="flex-1 glass-card"
+            disabled={isLoading}
+          />
+          <Button type="submit" size="lg" disabled={isLoading} className="px-8">
+            {isLoading ? "Analyzing..." : "Analyze Repo"}
           </Button>
-          <Button variant="outline" size="lg" onClick={() => navigate("/auth")}>
-            View Documentation
-          </Button>
-        </div>
-
-        {/* Demo Window */}
-        <div 
-          className="animate-slide-up"
-          style={{ animationDelay: "300ms" }}
-        >
-          <DemoWindow className="max-w-4xl mx-auto" />
-        </div>
+        </form>
       </div>
     </section>
   );
