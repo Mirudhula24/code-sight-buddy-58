@@ -1,47 +1,51 @@
-import { useEffect, useState } from "react";
-import { supabase } from "@/integrations/supabase/client";
-import Header from "@/components/Header";
-import Hero from "@/components/Hero";
-import Features from "@/components/Features";
-import Footer from "@/components/Footer";
+import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 
-// This helps TypeScript understand your table structure
-interface Repository {
-  id: string;
-  repo_url: string;
-  summary: string | null;
-  created_at: string;
-}
-
-const Index = () => {
-  const [history, setHistory] = useState<Repository[]>([]);
-
-  useEffect(() => {
-    const fetchHistory = async () => {
-      const { data, error } = await supabase.from("repositories").select("*").order("created_at", { ascending: false });
-
-      if (error) {
-        console.error("Error fetching history:", error.message);
-      } else if (data) {
-        setHistory(data as Repository[]);
-        console.log("History loaded successfully");
-      }
-    };
-
-    fetchHistory();
-  }, []);
-
-  return (
-    <div className="min-h-screen bg-background">
-      <Header />
-      <main>
-        <Hero />
-        {/* We pass the history to Features so it can display your past work */}
-        <Features history={history} />
-      </main>
-      <Footer />
-    </div>
-  );
+const corsHeaders = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
-export default Index;
+serve(async (req) => {
+  // ✅ FIX 1: Handle the browser's security "preflight" check
+  if (req.method === "OPTIONS") {
+    return new Response("ok", { headers: corsHeaders });
+  }
+
+  try {
+    const { url } = await req.json();
+    const openAiKey = Deno.env.get("OPENAI_API_KEY");
+
+    if (!openAiKey) {
+      throw new Error("Missing OPENAI_API_KEY secret in Supabase dashboard.");
+    }
+
+    const response = await fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${openAiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model: "gpt-4o",
+        messages: [
+          { role: "system", content: "You are a technical architect. Summarize this GitHub repo in 3 sentences." },
+          { role: "user", content: `Analyze: ${url}` },
+        ],
+      }),
+    });
+
+    const aiData = await response.json();
+    if (aiData.error) throw new Error(aiData.error.message);
+
+    const summary = aiData.choices[0].message.content;
+
+    return new Response(JSON.stringify({ summary }), {
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
+  } catch (error) {
+    return new Response(JSON.stringify({ error: error.message }), {
+      status: 500,
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
+  }
+});
