@@ -1,8 +1,8 @@
 import { useState } from "react";
-import { supabase } from "@/integrations/supabase/client"; // Import our secure client
+import { supabase } from "@/integrations/supabase/client";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
-import { toast } from "sonner"; // Common in Lovable for notifications
+import { toast } from "sonner";
 
 const Hero = () => {
   const [url, setUrl] = useState("");
@@ -14,28 +14,29 @@ const Hero = () => {
 
     setIsLoading(true);
     try {
-      // 1. YOUR AI LOGIC GOES HERE
-      // For now, we simulate an AI summary.
-      // Later, you'll replace this with your actual AI API call.
-      const mockAiSummary =
-        "This repository contains a React-based frontend using Tailwind CSS. The architecture follows a component-based pattern with centralized state management.";
+      // 1. CALL THE LIVE AI FUNCTION YOU DEPLOYED
+      // This sends the URL to your 'analyze-repo' Edge Function
+      const { data: aiResponse, error: aiError } = await supabase.functions.invoke("analyze-repo", {
+        body: { url: url },
+      });
 
-      // 2. SAVE TO SUPABASE
-      const { error } = await supabase.from("repositories").insert([
+      if (aiError) throw new Error("AI Analysis failed: " + aiError.message);
+
+      // 2. SAVE THE REAL RESULT TO YOUR DATABASE
+      const { error: dbError } = await supabase.from("repositories").insert([
         {
           repo_url: url,
-          summary: mockAiSummary,
-          // Note: user_id is auto-filled by the DB default auth.uid() we set earlier!
+          summary: aiResponse.summary,
         },
       ]);
 
-      if (error) throw error;
+      if (dbError) throw dbError;
 
-      toast.success("Analysis complete and saved to history!");
-      setUrl(""); // Clear the input
+      toast.success("Analysis complete and saved!");
+      setUrl("");
 
       // 3. REFRESH PAGE
-      // This triggers the useEffect in Index.tsx to show the new card immediately
+      // This tells the app to fetch the new data so it shows up in your list
       window.location.reload();
     } catch (error: any) {
       toast.error("Error: " + error.message);
