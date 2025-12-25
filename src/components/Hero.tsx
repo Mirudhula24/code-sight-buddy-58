@@ -1,46 +1,33 @@
 import { useState } from "react";
-import { supabase } from "@/integrations/supabase/client";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
 import { toast } from "sonner";
+import { useNavigate } from "react-router-dom";
+import { useAuth } from "@/contexts/AuthContext";
 
 const Hero = () => {
   const [url, setUrl] = useState("");
   const [isLoading, setIsLoading] = useState(false);
+  const navigate = useNavigate();
+  const { user } = useAuth();
 
   const handleAnalyze = async (e: React.FormEvent) => {
     e.preventDefault();
+    
+    if (!user) {
+      navigate("/auth");
+      return;
+    }
+    
     if (!url) return toast.error("Please enter a GitHub URL");
-
+    
     setIsLoading(true);
     try {
-      // 1. CALL THE LIVE AI FUNCTION
-      // ✅ FIX: Added the dash '-' to match "analyze-repo-" in your Supabase dashboard
-      const { data: aiResponse, error: aiError } = await supabase.functions.invoke("analyze-repo-", {
-        body: { url: url },
-      });
-
-      if (aiError) throw new Error("AI Analysis failed: " + aiError.message);
-
-      // 2. SAVE THE REAL RESULT TO YOUR DATABASE
-      // ✅ FIX: Added 'as any' to bypass the TypeScript error "Argument of type 'repositories' is not assignable to type 'never'"
-      const { error: dbError } = await (supabase.from("repositories") as any).insert([
-        {
-          repo_url: url,
-          summary: aiResponse.summary,
-        },
-      ]);
-
-      if (dbError) throw dbError;
-
-      toast.success("Analysis complete and saved!");
+      // TODO: Implement analysis functionality
+      toast.info("Analysis feature coming soon!");
       setUrl("");
-
-      // 3. REFRESH PAGE
-      window.location.reload();
     } catch (error: any) {
-      // ✅ Improved error logging to help you debug in the console
-      console.error("Full error details:", error);
+      console.error("Error:", error);
       toast.error("Error: " + error.message);
     } finally {
       setIsLoading(false);
