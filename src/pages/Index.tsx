@@ -10,13 +10,13 @@ const Index = () => {
 
   useEffect(() => {
     const fetchHistory = async () => {
-      // ✅ Use 'as any' to bypass 'never' error
+      // ✅ Using 'as any' bypasses the 'never' error in the sidebar
       const { data, error } = await (supabase.from("repositories") as any)
         .select("*")
         .order("created_at", { ascending: false });
 
       if (error) {
-        console.error("Error fetching history:", error.message);
+        console.error("Fetch error:", error.message);
       } else if (data) {
         setHistory(data);
       }
@@ -25,12 +25,11 @@ const Index = () => {
   }, []);
 
   return (
-    <div className="min-h-screen bg-background">
+    <div className="min-h-screen bg-background text-foreground">
       <Header />
       <main>
         <Hero />
-        {/* If Features still errors, you may need to update its props or remove this line temporarily */}
-        <Features />
+        <Features history={history} />
       </main>
       <Footer />
     </div>
