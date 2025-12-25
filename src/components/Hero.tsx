@@ -14,16 +14,16 @@ const Hero = () => {
 
     setIsLoading(true);
     try {
-      // 1. CALL THE LIVE AI FUNCTION
-      // ✅ Using the dash to match your dashboard name "analyze-repo-"
+      // 1. CALL THE EDGE FUNCTION
+      // Matches the "analyze-repo-" name in your Supabase dashboard
       const { data: aiResponse, error: aiError } = await supabase.functions.invoke("analyze-repo-", {
         body: { url: url },
       });
 
       if (aiError) throw new Error("AI Analysis failed: " + aiError.message);
 
-      // 2. SAVE THE REAL RESULT TO YOUR DATABASE
-      // ✅ 'as any' is the ONLY way to stop Lovable from deleting this line
+      // 2. SAVE THE RESULT TO DATABASE
+      // ✅ FIX: 'as any' bypasses the TypeScript 'never' error
       const { error: dbError } = await (supabase.from("repositories") as any).insert([
         {
           repo_url: url,
@@ -35,11 +35,9 @@ const Hero = () => {
 
       toast.success("Analysis complete and saved!");
       setUrl("");
-
-      // 3. REFRESH PAGE
       window.location.reload();
     } catch (error: any) {
-      console.error("Full error details:", error);
+      console.error("Analysis error details:", error);
       toast.error("Error: " + error.message);
     } finally {
       setIsLoading(false);
