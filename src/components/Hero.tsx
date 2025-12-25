@@ -16,7 +16,7 @@ const Hero = () => {
     try {
       // 1. CALL THE LIVE AI FUNCTION YOU DEPLOYED
       // This sends the URL to your 'analyze-repo' Edge Function
-      const { data: aiResponse, error: aiError } = await supabase.functions.invoke("analyze-repo-", {
+      const { data: aiResponse, error: aiError } = await supabase.functions.invoke("analyze-repo-  ", {
         body: { url: url },
       });
 
