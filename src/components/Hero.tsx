@@ -14,8 +14,7 @@ const Hero = () => {
 
     setIsLoading(true);
     try {
-      // 1. CALL THE EDGE FUNCTION
-      // ✅ Matches your dashboard name exactly
+      // 1. CALL THE AI (Match your function name: analyze-repo-)
       const { data: aiResponse, error: aiError } = await supabase.functions.invoke("analyze-repo-", {
         body: { url: url },
       });
@@ -23,7 +22,7 @@ const Hero = () => {
       if (aiError) throw new Error("AI Analysis failed: " + aiError.message);
 
       // 2. SAVE TO DATABASE
-      // ✅ The 'as any' is CRITICAL here to prevent Lovable from reverting this code
+      // ✅ 'as any' stops Lovable from deleting this line
       const { error: dbError } = await (supabase.from("repositories") as any).insert([
         {
           repo_url: url,
@@ -33,7 +32,7 @@ const Hero = () => {
 
       if (dbError) throw dbError;
 
-      toast.success("Analysis complete and saved!");
+      toast.success("Analysis complete!");
       setUrl("");
       window.location.reload();
     } catch (error: any) {
@@ -56,9 +55,8 @@ const Hero = () => {
             value={url}
             onChange={(e) => setUrl(e.target.value)}
             disabled={isLoading}
-            className="glass-card"
           />
-          <Button type="submit" size="lg" disabled={isLoading} className="px-8">
+          <Button type="submit" disabled={isLoading}>
             {isLoading ? "Analyzing..." : "Analyze Repo"}
           </Button>
         </form>
