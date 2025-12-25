@@ -1,29 +1,39 @@
-interface FeaturesProps {
-  history?: any[];
-}
+import { useEffect, useState } from "react";
+import { supabase } from "@/integrations/supabase/client";
+import Header from "@/components/Header";
+import Hero from "@/components/Hero";
+import Features from "@/components/Features";
+import Footer from "@/components/Footer";
 
-const Features = ({ history = [] }: FeaturesProps) => {
+const Index = () => {
+  const [history, setHistory] = useState<any[]>([]);
+
+  useEffect(() => {
+    const fetchHistory = async () => {
+      // ✅ 'as any' bypasses the database sync error in the sidebar
+      const { data, error } = await (supabase.from("repositories") as any)
+        .select("*")
+        .order("created_at", { ascending: false });
+
+      if (error) {
+        console.error("Fetch error:", error.message);
+      } else if (data) {
+        setHistory(data);
+      }
+    };
+    fetchHistory();
+  }, []);
+
   return (
-    <section className="py-24 px-4 bg-secondary/50">
-      <div className="max-w-6xl mx-auto text-center">
-        <h2 className="text-3xl font-bold mb-12">Recent Analyses</h2>
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 text-left">
-          {history.length > 0 ? (
-            history.map((item: any, index: number) => (
-              <div key={index} className="glass-card p-6 rounded-xl border bg-card shadow-sm">
-                <p className="font-mono text-xs text-primary mb-2 truncate font-bold">{item.repo_url}</p>
-                <p className="text-sm text-muted-foreground line-clamp-4 italic">
-                  {item.summary || "Generating summary..."}
-                </p>
-              </div>
-            ))
-          ) : (
-            <p className="col-span-full text-muted-foreground">No analyses found. Submit a repo above!</p>
-          )}
-        </div>
-      </div>
-    </section>
+    <div className="min-h-screen bg-background">
+      <Header />
+      <main>
+        <Hero />
+        <Features history={history} />
+      </main>
+      <Footer />
+    </div>
   );
 };
 
-export default Features;
+export default Index;
