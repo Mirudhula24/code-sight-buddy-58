@@ -14,8 +14,8 @@ const Hero = () => {
 
     setIsLoading(true);
     try {
-      // 1. CALL THE LIVE AI FUNCTION YOU DEPLOYED
-      // This sends the URL to your 'analyze-repo' Edge Function
+      // 1. CALL THE LIVE AI FUNCTION
+      // ✅ Using the dash to match your dashboard name "analyze-repo-"
       const { data: aiResponse, error: aiError } = await supabase.functions.invoke("analyze-repo-", {
         body: { url: url },
       });
@@ -23,7 +23,8 @@ const Hero = () => {
       if (aiError) throw new Error("AI Analysis failed: " + aiError.message);
 
       // 2. SAVE THE REAL RESULT TO YOUR DATABASE
-      const { error: dbError } = await supabase.from("repositories").insert([
+      // ✅ 'as any' prevents Lovable from deleting this code during auto-fix
+      const { error: dbError } = await (supabase.from("repositories") as any).insert([
         {
           repo_url: url,
           summary: aiResponse.summary,
@@ -36,9 +37,9 @@ const Hero = () => {
       setUrl("");
 
       // 3. REFRESH PAGE
-      // This tells the app to fetch the new data so it shows up in your list
       window.location.reload();
     } catch (error: any) {
+      console.error("Full error details:", error);
       toast.error("Error: " + error.message);
     } finally {
       setIsLoading(false);
