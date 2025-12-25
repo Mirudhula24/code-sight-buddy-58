@@ -1,35 +1,45 @@
-import { useEffect, useState } from "react";
-import { supabase } from "@/integrations/supabase/client";
-import Header from "@/components/Header";
-import Hero from "@/components/Hero";
-import Features from "@/components/Features";
-import Footer from "@/components/Footer";
+import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 
-// ✅ Fix for App.tsx error: Added "export default"
-export default function Index() {
-  const [history, setHistory] = useState<any[]>([]);
+const corsHeaders = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+};
 
-  useEffect(() => {
-    const fetchHistory = async () => {
-      const { data, error } = await supabase.from("repositories").select("*").order("created_at", { ascending: false });
+serve(async (req) => {
+  // ✅ FIX: Handle the browser's CORS preflight check
+  if (req.method === "OPTIONS") {
+    return new Response("ok", { headers: corsHeaders });
+  }
 
-      if (error) {
-        console.error("Error fetching history:", error.message);
-      } else if (data) {
-        setHistory(data);
-      }
-    };
-    fetchHistory();
-  }, []);
+  try {
+    const { url } = await req.json();
+    const openAiKey = Deno.env.get("OPENAI_API_KEY");
 
-  return (
-    <div className="min-h-screen bg-background">
-      <Header />
-      <main>
-        <Hero />
-        <Features history={history} />
-      </main>
-      <Footer />
-    </div>
-  );
-}
+    if (!openAiKey) throw new Error("Missing OPENAI_API_KEY in secrets.");
+
+    const response = await fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${openAiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model: "gpt-4o",
+        messages: [{ role: "user", content: `Analyze this repo: ${url}` }],
+      }),
+    });
+
+    const aiData = await response.json();
+    const summary = aiData.choices[0].message.content;
+
+    return new Response(JSON.stringify({ summary }), {
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+      status: 200,
+    });
+  } catch (error) {
+    return new Response(JSON.stringify({ error: error.message }), {
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+      status: 500,
+    });
+  }
+});
