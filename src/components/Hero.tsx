@@ -15,15 +15,16 @@ const Hero = () => {
     setIsLoading(true);
     try {
       // 1. CALL THE LIVE AI FUNCTION
-      // ✅ FIX: Match the exact name "analyze-repo-" from your dashboard
+      // Ensure this matches your dashboard: "analyze-repo-"
       const { data: aiResponse, error: aiError } = await supabase.functions.invoke("analyze-repo-", {
         body: { url: url },
       });
 
       if (aiError) throw new Error("AI Analysis failed: " + aiError.message);
 
-      // 2. SAVE THE REAL RESULT TO YOUR DATABASE
-      const { error: dbError } = await supabase.from("repositories").insert([
+      // 2. SAVE THE RESULT TO DATABASE
+      // ✅ FIX: Use 'as any' to bypass the TypeScript 'never' error for 'repositories'
+      const { error: dbError } = await (supabase.from("repositories") as any).insert([
         {
           repo_url: url,
           summary: aiResponse.summary,
@@ -39,6 +40,7 @@ const Hero = () => {
       window.location.reload();
     } catch (error: any) {
       toast.error("Error: " + error.message);
+      console.error(error);
     } finally {
       setIsLoading(false);
     }
