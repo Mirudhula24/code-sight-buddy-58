@@ -1,75 +1,78 @@
-import { 
-  FileSearch, 
-  GitBranch, 
-  FileText, 
-  MessageSquare, 
-  Workflow,
-  Shield
-} from "lucide-react";
-import FeatureCard from "./FeatureCard";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Github, Clock, FileText } from "lucide-react";
 
-const features = [
-  {
-    icon: FileSearch,
-    title: "Repository Parser",
-    description: "Automatically scans and indexes your entire codebase, understanding file structures and relationships.",
-  },
-  {
-    icon: GitBranch,
-    title: "Dependency Mapping",
-    description: "Visualize how modules connect and depend on each other with clear, interactive diagrams.",
-  },
-  {
-    icon: FileText,
-    title: "Auto Documentation",
-    description: "Generate comprehensive docs for every file, function, and class with AI-powered summaries.",
-  },
-  {
-    icon: MessageSquare,
-    title: "Interactive Q&A",
-    description: "Ask natural language questions about your code and get accurate, context-aware answers.",
-  },
-  {
-    icon: Workflow,
-    title: "Architecture Overview",
-    description: "Get high-level summaries of system design, patterns, and architectural decisions.",
-  },
-  {
-    icon: Shield,
-    title: "Risk Analysis",
-    description: "Identify modules that are risky to modify and understand potential impact of changes.",
-  },
-];
+// 1. Define the same Interface so TypeScript is happy
+interface Repository {
+  id: string;
+  repo_url: string;
+  summary: string | null;
+  created_at: string;
+}
 
-const Features = () => {
+interface FeaturesProps {
+  history?: Repository[]; // The '?' means it's optional
+}
+
+const Features = ({ history = [] }: FeaturesProps) => {
   return (
-    <section className="relative py-24 px-4">
-      <div className="max-w-6xl mx-auto">
-        {/* Section Header */}
-        <div className="text-center mb-16">
-          <h2 className="text-3xl md:text-4xl font-bold text-foreground mb-4">
-            Powerful Analysis Tools
-          </h2>
-          <p className="text-lg text-muted-foreground max-w-2xl mx-auto">
-            Everything you need to explore, understand, and document any codebase with confidence.
-          </p>
-        </div>
+    <section className="py-20 container">
+      <h2 className="text-3xl font-bold text-center mb-12">
+        {history.length > 0 ? "Your Analysis History" : "Key Features"}
+      </h2>
 
-        {/* Feature Grid */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {features.map((feature, index) => (
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+        {history.length > 0 ? (
+          // 2. Loop through history and create a Card for each repo
+          history.map((repo) => (
+            <Card key={repo.id} className="glass-card hover-scale">
+              <CardHeader>
+                <div className="flex items-center gap-2 mb-2">
+                  <Github className="w-5 h-5 text-primary" />
+                  <span className="text-xs text-muted-foreground truncate">
+                    {new Date(repo.created_at).toLocaleDateString()}
+                  </span>
+                </div>
+                <CardTitle className="text-sm break-all">{repo.repo_url.replace("https://github.com/", "")}</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <p className="text-sm text-muted-foreground line-clamp-4">
+                  {repo.summary || "Analysis in progress..."}
+                </p>
+              </CardContent>
+            </Card>
+          ))
+        ) : (
+          // 3. Default "Empty State" or Features if no history exists
+          <>
             <FeatureCard
-              key={index}
-              icon={feature.icon}
-              title={feature.title}
-              description={feature.description}
-              delay={index * 100}
+              icon={<Github className="w-10 h-10" />}
+              title="Repo Analysis"
+              desc="Deep dive into any public GitHub repository."
             />
-          ))}
-        </div>
+            <FeatureCard
+              icon={<FileText className="w-10 h-10" />}
+              title="AI Summaries"
+              desc="Get instant, readable summaries of complex codebases."
+            />
+            <FeatureCard
+              icon={<Clock className="w-10 h-10" />}
+              title="History"
+              desc="Keep track of all your past repository analyses."
+            />
+          </>
+        )}
       </div>
     </section>
   );
 };
+
+// Simple helper component for the default view
+const FeatureCard = ({ icon, title, desc }: { icon: any; title: string; desc: string }) => (
+  <Card className="glass-card text-center p-6">
+    <div className="flex justify-center mb-4 text-primary">{icon}</div>
+    <CardTitle className="mb-2">{title}</CardTitle>
+    <p className="text-muted-foreground">{desc}</p>
+  </Card>
+);
 
 export default Features;
