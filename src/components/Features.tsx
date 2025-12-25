@@ -9,16 +9,16 @@ const Features = ({ history = [] }: FeaturesProps) => {
         <h2 className="text-3xl font-bold mb-12">Recent Analyses</h2>
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 text-left">
           {history.length > 0 ? (
-            history.map((item, index) => (
-              <div key={index} className="glass-card p-6 rounded-xl border bg-card">
-                <p className="font-mono text-xs text-primary mb-2 truncate">{item.repo_url}</p>
+            history.map((item: any, index: number) => (
+              <div key={index} className="glass-card p-6 rounded-xl border bg-card shadow-sm">
+                <p className="font-mono text-xs text-primary mb-2 truncate font-bold">{item.repo_url}</p>
                 <p className="text-sm text-muted-foreground line-clamp-4 italic">
-                  {item.summary || "No summary available"}
+                  {item.summary || "Generating summary..."}
                 </p>
               </div>
             ))
           ) : (
-            <p className="col-span-full text-muted-foreground">No analyses found yet. Submit a repo above!</p>
+            <p className="col-span-full text-muted-foreground">No analyses found. Submit a repo above!</p>
           )}
         </div>
       </div>
