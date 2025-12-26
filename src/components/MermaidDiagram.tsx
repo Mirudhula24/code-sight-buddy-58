@@ -1,7 +1,13 @@
 import { useEffect, useRef, useState } from "react";
 import mermaid from "mermaid";
-import { ZoomIn, ZoomOut, RotateCcw, Download } from "lucide-react";
+import { ZoomIn, ZoomOut, RotateCcw, Download, FileImage } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 
 interface MermaidDiagramProps {
   chart: string;
@@ -64,7 +70,7 @@ const MermaidDiagram = ({ chart, className = "" }: MermaidDiagramProps) => {
   const handleZoomOut = () => setScale((prev) => Math.max(prev - 0.25, 0.5));
   const handleReset = () => setScale(1);
 
-  const handleDownload = () => {
+  const handleDownloadSVG = () => {
     if (!svgContent) return;
     const blob = new Blob([svgContent], { type: "image/svg+xml" });
     const url = URL.createObjectURL(blob);
@@ -73,6 +79,36 @@ const MermaidDiagram = ({ chart, className = "" }: MermaidDiagramProps) => {
     a.download = "architecture-diagram.svg";
     a.click();
     URL.revokeObjectURL(url);
+  };
+
+  const handleDownloadPNG = async () => {
+    if (!svgContent) return;
+    
+    const canvas = document.createElement("canvas");
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+
+    const img = new Image();
+    const svgBlob = new Blob([svgContent], { type: "image/svg+xml;charset=utf-8" });
+    const url = URL.createObjectURL(svgBlob);
+
+    img.onload = () => {
+      canvas.width = img.width * 2;
+      canvas.height = img.height * 2;
+      ctx.scale(2, 2);
+      ctx.fillStyle = "#0f172a";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.drawImage(img, 0, 0);
+      
+      const pngUrl = canvas.toDataURL("image/png");
+      const a = document.createElement("a");
+      a.href = pngUrl;
+      a.download = "architecture-diagram.png";
+      a.click();
+      URL.revokeObjectURL(url);
+    };
+
+    img.src = url;
   };
 
   if (error) {
@@ -107,9 +143,23 @@ const MermaidDiagram = ({ chart, className = "" }: MermaidDiagramProps) => {
         <Button variant="ghost" size="icon" onClick={handleReset} className="h-8 w-8">
           <RotateCcw className="h-4 w-4" />
         </Button>
-        <Button variant="ghost" size="icon" onClick={handleDownload} className="h-8 w-8">
-          <Download className="h-4 w-4" />
-        </Button>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button variant="ghost" size="icon" className="h-8 w-8">
+              <Download className="h-4 w-4" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            <DropdownMenuItem onClick={handleDownloadPNG} className="cursor-pointer">
+              <FileImage className="h-4 w-4 mr-2" />
+              Download PNG
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={handleDownloadSVG} className="cursor-pointer">
+              <Download className="h-4 w-4 mr-2" />
+              Download SVG
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
       </div>
 
       {/* Diagram Container */}
