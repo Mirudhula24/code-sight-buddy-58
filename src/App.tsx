@@ -2,12 +2,16 @@ import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { BrowserRouter, Routes, Route } from "react-router-dom";
+import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { AuthProvider } from "@/contexts/AuthContext";
 import ProtectedRoute from "@/components/ProtectedRoute";
+import DashboardLayout from "@/components/DashboardLayout";
 import Index from "./pages/Index";
 import Auth from "./pages/Auth";
-import Dashboard from "./pages/Dashboard";
+import Analyze from "./pages/Analyze";
+import Library from "./pages/Library";
+import Insights from "./pages/Insights";
+import Settings from "./pages/Settings";
 import SharedAnalysis from "./pages/SharedAnalysis";
 import NotFound from "./pages/NotFound";
 
@@ -28,11 +32,52 @@ const App = () => (
               path="/dashboard"
               element={
                 <ProtectedRoute>
-                  <Dashboard />
+                  <DashboardLayout>
+                    <Navigate to="/dashboard/analyze" replace />
+                  </DashboardLayout>
                 </ProtectedRoute>
               }
             />
-            {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
+            <Route
+              path="/dashboard/analyze"
+              element={
+                <ProtectedRoute>
+                  <DashboardLayout>
+                    <Analyze />
+                  </DashboardLayout>
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/dashboard/library"
+              element={
+                <ProtectedRoute>
+                  <DashboardLayout>
+                    <Library />
+                  </DashboardLayout>
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/dashboard/insights"
+              element={
+                <ProtectedRoute>
+                  <DashboardLayout>
+                    <Insights />
+                  </DashboardLayout>
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/dashboard/settings"
+              element={
+                <ProtectedRoute>
+                  <DashboardLayout>
+                    <Settings />
+                  </DashboardLayout>
+                </ProtectedRoute>
+              }
+            />
             <Route path="*" element={<NotFound />} />
           </Routes>
         </BrowserRouter>
