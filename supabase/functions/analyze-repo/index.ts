@@ -54,19 +54,19 @@ serve(async (req) => {
 
     const repoData = await repoResponse.json();
 
-    // Fetch repository file tree
+    // Fetch repository file tree with sizes
     const treeResponse = await fetch(
       `https://api.github.com/repos/${owner}/${repoName}/git/trees/HEAD?recursive=1`,
       { headers: { 'Accept': 'application/vnd.github.v3+json' } }
     );
 
-    let fileTree: string[] = [];
+    let fileTree: Array<{ path: string; size: number }> = [];
     if (treeResponse.ok) {
       const treeData = await treeResponse.json();
       fileTree = treeData.tree
         ?.filter((item: any) => item.type === 'blob')
-        ?.map((item: any) => item.path)
-        ?.slice(0, 100) || []; // Limit to 100 files
+        ?.map((item: any) => ({ path: item.path, size: item.size || 0 }))
+        ?.slice(0, 150) || [];
     }
 
     // Fetch README if available
@@ -77,7 +77,7 @@ serve(async (req) => {
     );
     if (readmeResponse.ok) {
       readmeContent = await readmeResponse.text();
-      readmeContent = readmeContent.substring(0, 3000); // Limit README size
+      readmeContent = readmeContent.substring(0, 4000);
     }
 
     // Fetch languages
@@ -86,6 +86,13 @@ serve(async (req) => {
       { headers: { 'Accept': 'application/vnd.github.v3+json' } }
     );
     const languages = langResponse.ok ? await langResponse.json() : {};
+
+    // Identify large files (potential god components)
+    const largeFiles = fileTree
+      .filter(f => f.size > 10000 && (f.path.endsWith('.ts') || f.path.endsWith('.tsx') || f.path.endsWith('.js') || f.path.endsWith('.jsx') || f.path.endsWith('.py') || f.path.endsWith('.java')))
+      .sort((a, b) => b.size - a.size)
+      .slice(0, 5)
+      .map(f => ({ path: f.path, size: f.size }));
 
     // Build context for AI analysis
     const repoContext = `
@@ -99,16 +106,19 @@ Open Issues: ${repoData.open_issues_count}
 Created: ${repoData.created_at}
 Last Updated: ${repoData.pushed_at}
 
-File Structure (up to 100 files):
-${fileTree.join('\n')}
+File Structure (up to 150 files):
+${fileTree.map(f => `${f.path} (${f.size} bytes)`).join('\n')}
+
+Large Files (potential god components):
+${largeFiles.map(f => `${f.path}: ${f.size} bytes`).join('\n') || 'None detected'}
 
 README (excerpt):
 ${readmeContent || 'No README available'}
 `;
 
-    console.log('Calling Lovable AI for analysis...');
+    console.log('Calling Lovable AI for comprehensive analysis...');
 
-    // Call Lovable AI for analysis
+    // Call Lovable AI for comprehensive analysis
     const aiResponse = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
       method: 'POST',
       headers: {
@@ -120,8 +130,8 @@ ${readmeContent || 'No README available'}
         messages: [
           {
             role: 'system',
-            content: `You are an expert code analyst. Analyze GitHub repositories and provide structured insights.
-            
+            content: `You are an expert code architect and analyst. Analyze GitHub repositories and provide comprehensive structured insights including architecture diagrams.
+
 Respond with a JSON object containing these fields:
 - summary: A 2-3 sentence overview of what this repository does
 - architecture: Description of the project architecture and patterns used
@@ -130,12 +140,26 @@ Respond with a JSON object containing these fields:
 - codeQuality: Brief assessment of code organization and quality
 - suggestions: Array of 2-3 improvement suggestions
 - complexity: "beginner", "intermediate", or "advanced"
+- mermaidDiagram: A valid Mermaid.js flowchart diagram showing the architecture. Use "graph TD" syntax. Show main components/modules, their connections, and data flow. Keep it clean and readable with 5-10 nodes. Use descriptive labels. Example format:
+  graph TD
+    A[Client] --> B[API Layer]
+    B --> C[Service Layer]
+    C --> D[(Database)]
+- designAnalysis: Object containing:
+  - largeFiles: Array of objects with "path" and "reason" for files that may be god components
+  - codePatterns: Array of objects with "pattern", "description", and optional "locations" array
+  - architecturalPattern: Object with "name", "description", and "confidence" (high/medium/low)
+  - coupling: Object with "level" (low/medium/high), "description", and optional "hotspots" array
 
-Return ONLY valid JSON, no markdown formatting.`
+IMPORTANT: 
+- The mermaidDiagram must be valid Mermaid syntax that can be rendered
+- Use simple node labels without special characters
+- Keep the diagram focused on major components
+- Return ONLY valid JSON, no markdown formatting.`
           },
           {
             role: 'user',
-            content: `Analyze this GitHub repository:\n\n${repoContext}`
+            content: `Analyze this GitHub repository and generate an architecture diagram:\n\n${repoContext}`
           }
         ],
       }),
@@ -164,7 +188,7 @@ Return ONLY valid JSON, no markdown formatting.`
     const aiData = await aiResponse.json();
     const analysisText = aiData.choices?.[0]?.message?.content || '';
     
-    console.log('AI response received:', analysisText.substring(0, 200));
+    console.log('AI response received:', analysisText.substring(0, 300));
 
     // Parse the AI response
     let analysis;
@@ -189,7 +213,37 @@ Return ONLY valid JSON, no markdown formatting.`
         keyFeatures: [],
         codeQuality: 'Analysis pending',
         suggestions: [],
-        complexity: 'unknown'
+        complexity: 'unknown',
+        mermaidDiagram: `graph TD
+    A[${repoName}] --> B[Source Code]
+    B --> C[Dependencies]
+    B --> D[Configuration]`,
+        designAnalysis: {
+          largeFiles: largeFiles.map(f => ({ path: f.path, reason: `Large file: ${Math.round(f.size / 1024)}KB` })),
+          codePatterns: [],
+          architecturalPattern: { name: 'Unknown', description: 'Unable to determine pattern', confidence: 'low' },
+          coupling: { level: 'unknown', description: 'Unable to analyze coupling' }
+        }
+      };
+    }
+
+    // Ensure mermaidDiagram exists and is valid
+    if (!analysis.mermaidDiagram || typeof analysis.mermaidDiagram !== 'string') {
+      analysis.mermaidDiagram = `graph TD
+    A[${repoName}] --> B[Core Modules]
+    B --> C[Utils/Helpers]
+    B --> D[External APIs]
+    C --> E[Output]
+    D --> E`;
+    }
+
+    // Ensure designAnalysis exists
+    if (!analysis.designAnalysis) {
+      analysis.designAnalysis = {
+        largeFiles: largeFiles.map(f => ({ path: f.path, reason: `Large file: ${Math.round(f.size / 1024)}KB` })),
+        codePatterns: [],
+        architecturalPattern: { name: 'Not detected', description: 'Unable to determine architectural pattern', confidence: 'low' },
+        coupling: { level: 'unknown', description: 'Unable to analyze component coupling' }
       };
     }
 
@@ -208,7 +262,7 @@ Return ONLY valid JSON, no markdown formatting.`
       }
     };
 
-    console.log('Analysis complete');
+    console.log('Analysis complete with architecture diagram');
 
     return new Response(
       JSON.stringify(result),
