@@ -154,7 +154,7 @@ ${readmeContent || 'No README available'}
         messages: [
           {
             role: 'system',
-            content: `You are an expert code architect and analyst. Analyze GitHub repositories and provide comprehensive structured insights including architecture diagrams.
+            content: `You are an expert code architect and analyst. Analyze GitHub repositories and provide comprehensive structured insights including code health metrics.
 
 Respond with a JSON object containing these fields:
 - summary: A 2-3 sentence overview of what this repository does
@@ -162,7 +162,6 @@ Respond with a JSON object containing these fields:
 - mainTechnologies: Array of main technologies/frameworks used
 - keyFeatures: Array of 3-5 key features or capabilities
 - codeQuality: Brief assessment of code organization and quality
-- suggestions: Array of 2-3 improvement suggestions
 - complexity: "beginner", "intermediate", or "advanced"
 - mermaidDiagram: A valid Mermaid.js flowchart diagram. CRITICAL RULES FOR MERMAID SYNTAX:
   1. Start with "graph TD" on its own line
@@ -179,21 +178,55 @@ Respond with a JSON object containing these fields:
   7. Example of INVALID syntax (DO NOT USE):
      A[Data Analysis (EDA)] - parentheses break parsing
      B["Quoted Label"] - quotes break parsing
+
+- healthMetrics: Object containing comprehensive code health analysis:
+  - overallScore: Number 0-100 representing code health
+  - scoreLabel: "excellent" (80-100), "good" (60-79), "needs-improvement" (40-59), or "critical" (0-39)
+  - criticalCount: Number of critical issues
+  - warningCount: Number of warnings
+  - suggestionCount: Number of suggestions
+  
+  - criticalIssues: Array of critical issues, each with:
+    - id: Unique string identifier
+    - type: "god-component" | "security-risk" | "unhandled-errors" | "validation-missing"
+    - title: Short title like "God Component Detected"
+    - description: Explanation of the issue
+    - affectedFiles: Array of file paths affected
+    - severity: "critical"
+    
+  - warnings: Array of warnings, each with:
+    - id: Unique string identifier
+    - type: "duplicate-code" | "high-complexity" | "deep-nesting" | "parameter-overload"
+    - title: Short title like "High Complexity Function"
+    - description: What the issue is
+    - whyItMatters: Why this is a problem
+    - suggestedFix: How to fix it
+    - affectedFiles: Array of file paths
+    - severity: "warning"
+    
+  - suggestions: Array of improvement suggestions, each with:
+    - id: Unique string identifier
+    - type: "refactoring" | "performance" | "best-practice" | "documentation"
+    - title: Short title like "Consider Extracting Functions"
+    - description: What improvement to make
+    - benefit: Why this helps
+    - example: Optional example of the improvement
+    - priority: "high" | "medium" | "low"
+
 - designAnalysis: Object containing:
-  - largeFiles: Array of objects with "path" and "reason" for files that may be god components
-  - codePatterns: Array of objects with "pattern", "description", and optional "locations" array
   - architecturalPattern: Object with "name", "description", and "confidence" (high/medium/low)
   - coupling: Object with "level" (low/medium/high), "description", and optional "hotspots" array
+  - codePatterns: Array of objects with "pattern", "description", and optional "locations" array
 
 IMPORTANT: 
-- The mermaidDiagram must be valid Mermaid syntax that can be rendered
-- Use simple node labels without special characters
-- Keep the diagram focused on major components
+- Analyze the file structure and sizes to identify real issues
+- Base your analysis on actual code patterns visible in the file list
+- Generate realistic, helpful findings based on the repository
 - Return ONLY valid JSON, no markdown formatting.`
           },
           {
             role: 'user',
-            content: `Analyze this GitHub repository and generate an architecture diagram:\n\n${repoContext}`
+            content: `Analyze this GitHub repository comprehensively. Pay attention to file sizes, naming patterns, and structure to identify code health issues:\n\n${repoContext}`
           }
         ],
       }),
