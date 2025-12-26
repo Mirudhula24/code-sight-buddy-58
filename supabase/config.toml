@@ -5,3 +5,6 @@ verify_jwt = false
 
 [functions.chat-with-repo]
 verify_jwt = false
+
+[functions.index-repo]
+verify_jwt = false
