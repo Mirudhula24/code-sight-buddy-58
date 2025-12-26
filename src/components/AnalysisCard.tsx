@@ -217,9 +217,74 @@ const AnalysisCard = ({ analysis, isExpanded, onToggleExpand, onDelete }: Analys
               )}
             </TabsContent>
 
-            <TabsContent value="architecture" className="p-5 bg-background/50 mt-0">
-              <h4 className="text-sm font-medium text-foreground mb-4">Component Architecture Diagram</h4>
-              <MermaidDiagram chart={data.mermaidDiagram || ""} className="min-h-[400px]" />
+            <TabsContent value="architecture" className="p-5 bg-background/50 mt-0 space-y-6">
+              {/* Architectural Pattern Summary */}
+              {data.designAnalysis?.architecturalPattern && (
+                <div className="p-4 rounded-lg bg-muted/30 border border-border">
+                  <div className="flex items-center justify-between mb-2">
+                    <h4 className="text-sm font-medium text-foreground">Architectural Pattern</h4>
+                    <span className={`px-2 py-0.5 text-xs rounded-full ${
+                      data.designAnalysis.architecturalPattern.confidence === 'high' 
+                        ? 'bg-green-500/20 text-green-400'
+                        : data.designAnalysis.architecturalPattern.confidence === 'medium'
+                        ? 'bg-yellow-500/20 text-yellow-400'
+                        : 'bg-muted text-muted-foreground'
+                    }`}>
+                      {data.designAnalysis.architecturalPattern.confidence} confidence
+                    </span>
+                  </div>
+                  <p className="text-base font-semibold text-primary mb-1">
+                    {data.designAnalysis.architecturalPattern.name}
+                  </p>
+                  <p className="text-sm text-muted-foreground">
+                    {data.designAnalysis.architecturalPattern.description}
+                  </p>
+                </div>
+              )}
+
+              {/* System Architecture Diagram */}
+              <div>
+                <h4 className="text-sm font-medium text-foreground mb-3">System Architecture</h4>
+                <p className="text-xs text-muted-foreground mb-4">
+                  Visual representation of main components, data flow, and dependencies
+                </p>
+                <MermaidDiagram chart={data.mermaidDiagram || ""} className="min-h-[400px]" />
+              </div>
+
+              {/* Component Dependencies */}
+              {data.designAnalysis?.coupling && (
+                <div className="p-4 rounded-lg bg-muted/30 border border-border">
+                  <div className="flex items-center justify-between mb-2">
+                    <h4 className="text-sm font-medium text-foreground">Component Coupling</h4>
+                    <span className={`px-2 py-0.5 text-xs rounded-full ${
+                      data.designAnalysis.coupling.level === 'low' 
+                        ? 'bg-green-500/20 text-green-400'
+                        : data.designAnalysis.coupling.level === 'medium'
+                        ? 'bg-yellow-500/20 text-yellow-400'
+                        : data.designAnalysis.coupling.level === 'high'
+                        ? 'bg-red-500/20 text-red-400'
+                        : 'bg-muted text-muted-foreground'
+                    }`}>
+                      {data.designAnalysis.coupling.level} coupling
+                    </span>
+                  </div>
+                  <p className="text-sm text-muted-foreground mb-2">
+                    {data.designAnalysis.coupling.description}
+                  </p>
+                  {data.designAnalysis.coupling.hotspots && data.designAnalysis.coupling.hotspots.length > 0 && (
+                    <div className="mt-3">
+                      <p className="text-xs font-medium text-foreground mb-1">Coupling Hotspots:</p>
+                      <div className="flex flex-wrap gap-2">
+                        {data.designAnalysis.coupling.hotspots.map((hotspot, i) => (
+                          <span key={i} className="px-2 py-1 text-xs bg-destructive/10 text-destructive rounded font-mono">
+                            {hotspot}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
             </TabsContent>
 
             <TabsContent value="design" className="p-5 bg-background/50 mt-0">
