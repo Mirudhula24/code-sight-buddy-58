@@ -69,6 +69,9 @@ export interface AnalysisData {
   healthMetrics?: HealthMetrics;
   designAnalysis?: DesignAnalysisData;
   metadata?: AnalysisMetadata;
+  repoId?: string;
+  ingestionStatus?: string;
+  chunksCount?: number;
 }
 
 export interface Analysis {

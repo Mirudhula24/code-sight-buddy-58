@@ -53,6 +53,44 @@ export type Database = {
         }
         Relationships: []
       }
+      code_chunks: {
+        Row: {
+          chunk_index: number | null
+          content: string
+          created_at: string
+          embedding: string | null
+          file_path: string
+          id: string
+          repo_id: string
+        }
+        Insert: {
+          chunk_index?: number | null
+          content: string
+          created_at?: string
+          embedding?: string | null
+          file_path: string
+          id?: string
+          repo_id: string
+        }
+        Update: {
+          chunk_index?: number | null
+          content?: string
+          created_at?: string
+          embedding?: string | null
+          file_path?: string
+          id?: string
+          repo_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "code_chunks_repo_id_fkey"
+            columns: ["repo_id"]
+            isOneToOne: false
+            referencedRelation: "repositories"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       profiles: {
         Row: {
           avatar_url: string | null
@@ -76,6 +114,39 @@ export type Database = {
           email?: string | null
           full_name?: string | null
           id?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      repositories: {
+        Row: {
+          chunks_count: number | null
+          created_at: string
+          id: string
+          ingestion_status: string | null
+          metadata: Json | null
+          repo_name: string | null
+          repo_url: string
+          updated_at: string
+        }
+        Insert: {
+          chunks_count?: number | null
+          created_at?: string
+          id?: string
+          ingestion_status?: string | null
+          metadata?: Json | null
+          repo_name?: string | null
+          repo_url: string
+          updated_at?: string
+        }
+        Update: {
+          chunks_count?: number | null
+          created_at?: string
+          id?: string
+          ingestion_status?: string | null
+          metadata?: Json | null
+          repo_name?: string | null
+          repo_url?: string
           updated_at?: string
         }
         Relationships: []
@@ -109,6 +180,21 @@ export type Database = {
           _user_id: string
         }
         Returns: boolean
+      }
+      match_code_chunks: {
+        Args: {
+          match_count?: number
+          match_threshold?: number
+          p_repo_id?: string
+          query_embedding: string
+        }
+        Returns: {
+          content: string
+          file_path: string
+          id: string
+          repo_id: string
+          similarity: number
+        }[]
       }
     }
     Enums: {
