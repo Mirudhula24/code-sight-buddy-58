@@ -30,13 +30,13 @@ const AnalysisCard = ({ analysis, isExpanded, onToggleExpand, onDelete, onUpdate
   };
 
   return (
-    <div className="gradient-card border border-border rounded-xl overflow-hidden hover:border-primary/40 transition-colors">
+    <div className="gradient-card border border-border rounded-xl overflow-hidden hover:border-primary/40 hover:shadow-lg hover:shadow-primary/5 transition-all duration-300 group">
       {/* Card Header */}
       <div className="p-5 cursor-pointer" onClick={onToggleExpand}>
         <div className="flex items-start justify-between mb-3">
           <div className="flex-1">
             <div className="flex items-center gap-2 mb-1">
-              <h3 className="font-semibold text-foreground">{localAnalysis.repository_name}</h3>
+              <h3 className="font-semibold text-foreground group-hover:text-primary transition-colors">{localAnalysis.repository_name}</h3>
               <span
                 className={`px-2 py-0.5 text-xs rounded-full ${
                   localAnalysis.status === "completed"
@@ -53,9 +53,9 @@ const AnalysisCard = ({ analysis, isExpanded, onToggleExpand, onDelete, onUpdate
           </div>
           <div className="flex items-center gap-2 ml-4">
             {isExpanded ? (
-              <ChevronUp className="w-5 h-5 text-muted-foreground" />
+              <ChevronUp className="w-5 h-5 text-muted-foreground group-hover:text-primary transition-colors" />
             ) : (
-              <ChevronDown className="w-5 h-5 text-muted-foreground" />
+              <ChevronDown className="w-5 h-5 text-muted-foreground group-hover:text-primary transition-colors" />
             )}
           </div>
         </div>

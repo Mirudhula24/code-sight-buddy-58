@@ -4,9 +4,12 @@ import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { LogOut, Sparkles, Search, Library, PlusCircle } from "lucide-react";
+import { LogOut, Sparkles, Search, Library, PlusCircle, RefreshCw, AlertCircle } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import AnalysisCard from "@/components/AnalysisCard";
+import AnalysisCardSkeleton from "@/components/AnalysisCardSkeleton";
+import AnalysisProgress from "@/components/AnalysisProgress";
+import EmptyState from "@/components/EmptyState";
 import { Analysis } from "@/types/analysis";
 
 const Dashboard = () => {
@@ -18,21 +21,30 @@ const Dashboard = () => {
   const [analyses, setAnalyses] = useState<Analysis[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [retryCountdown, setRetryCountdown] = useState(0);
 
   const fetchAnalyses = async () => {
     if (!user) return;
+    setError(null);
     
-    const { data, error } = await supabase
-      .from("analyses")
-      .select("*")
-      .order("created_at", { ascending: false });
+    try {
+      const { data, error: fetchError } = await supabase
+        .from("analyses")
+        .select("*")
+        .order("created_at", { ascending: false });
 
-    if (error) {
-      console.error("Error fetching analyses:", error.message);
-    } else {
+      if (fetchError) {
+        throw fetchError;
+      }
       setAnalyses((data || []) as Analysis[]);
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : "Failed to load analyses";
+      setError(errorMessage);
+      console.error("Error fetching analyses:", errorMessage);
+    } finally {
+      setIsLoading(false);
     }
-    setIsLoading(false);
   };
 
   useEffect(() => {
@@ -77,10 +89,7 @@ const Dashboard = () => {
     }
 
     setIsAnalyzing(true);
-    toast({
-      title: "Analysis Started",
-      description: "AI is analyzing your repository architecture. This may take a moment...",
-    });
+    setError(null);
 
     try {
       const repoName = extractRepoName(repoUrl);
@@ -91,6 +100,20 @@ const Dashboard = () => {
       });
 
       if (functionError) {
+        // Check for rate limit
+        if (functionError.message?.includes('rate limit') || functionError.message?.includes('429')) {
+          setRetryCountdown(60);
+          const countdownInterval = setInterval(() => {
+            setRetryCountdown((prev) => {
+              if (prev <= 1) {
+                clearInterval(countdownInterval);
+                return 0;
+              }
+              return prev - 1;
+            });
+          }, 1000);
+          throw new Error('Rate limit exceeded. Please wait before trying again.');
+        }
         throw new Error(functionError.message || 'Analysis failed');
       }
 
@@ -118,9 +141,10 @@ const Dashboard = () => {
 
       setRepoUrl("");
       fetchAnalyses();
-    } catch (error: unknown) {
-      const errorMessage = error instanceof Error ? error.message : "Unknown error";
+    } catch (err: unknown) {
+      const errorMessage = err instanceof Error ? err.message : "Unknown error";
       console.error("Analysis error:", errorMessage);
+      setError(errorMessage);
       toast({
         title: "Analysis Failed",
         description: errorMessage,
@@ -129,6 +153,11 @@ const Dashboard = () => {
     } finally {
       setIsAnalyzing(false);
     }
+  };
+
+  const handleRetry = () => {
+    setError(null);
+    handleStartAnalysis();
   };
 
   const handleDeleteAnalysis = async (id: string) => {
@@ -196,7 +225,7 @@ const Dashboard = () => {
         </div>
 
         {/* Analysis Input */}
-        <div className="max-w-2xl mx-auto mb-12">
+        <div className="max-w-2xl mx-auto mb-8">
           <div className="gradient-card border border-border rounded-2xl p-6">
             <h2 className="text-lg font-semibold text-foreground mb-4 flex items-center gap-2">
               <PlusCircle className="w-5 h-5 text-primary" />
@@ -211,13 +240,14 @@ const Dashboard = () => {
                   value={repoUrl}
                   onChange={(e) => setRepoUrl(e.target.value)}
                   className="pl-10 bg-input border-border focus:border-primary"
-                  onKeyDown={(e) => e.key === 'Enter' && handleStartAnalysis()}
+                  onKeyDown={(e) => e.key === 'Enter' && !isAnalyzing && handleStartAnalysis()}
+                  disabled={isAnalyzing || retryCountdown > 0}
                 />
               </div>
               <Button
                 variant="hero"
                 onClick={handleStartAnalysis}
-                disabled={isAnalyzing}
+                disabled={isAnalyzing || retryCountdown > 0}
                 className="whitespace-nowrap"
               >
                 {isAnalyzing ? (
@@ -225,12 +255,41 @@ const Dashboard = () => {
                     <div className="w-4 h-4 border-2 border-primary-foreground border-t-transparent rounded-full animate-spin mr-2" />
                     Analyzing...
                   </>
+                ) : retryCountdown > 0 ? (
+                  `Wait ${retryCountdown}s`
                 ) : (
                   "Start Analyzing"
                 )}
               </Button>
             </div>
+
+            {/* Error Message with Retry */}
+            {error && !isAnalyzing && (
+              <div className="mt-4 p-4 rounded-lg bg-destructive/10 border border-destructive/30 flex items-center gap-3 animate-fade-in">
+                <AlertCircle className="w-5 h-5 text-destructive flex-shrink-0" />
+                <div className="flex-1">
+                  <p className="text-sm text-destructive font-medium">Analysis Failed</p>
+                  <p className="text-xs text-destructive/80">{error}</p>
+                </div>
+                {retryCountdown === 0 && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={handleRetry}
+                    className="gap-2 border-destructive/30 text-destructive hover:bg-destructive/10"
+                  >
+                    <RefreshCw className="w-4 h-4" />
+                    Retry
+                  </Button>
+                )}
+              </div>
+            )}
           </div>
+        </div>
+
+        {/* Analysis Progress */}
+        <div className="max-w-2xl mx-auto">
+          <AnalysisProgress isAnalyzing={isAnalyzing} />
         </div>
 
         {/* Library Section */}
@@ -241,28 +300,38 @@ const Dashboard = () => {
           </h2>
 
           {isLoading ? (
-            <div className="gradient-card border border-border rounded-2xl p-12 text-center">
-              <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin mx-auto mb-4" />
-              <p className="text-muted-foreground">Loading your analyses...</p>
+            <div className="space-y-4">
+              <AnalysisCardSkeleton />
+              <AnalysisCardSkeleton />
+              <AnalysisCardSkeleton />
+            </div>
+          ) : error && analyses.length === 0 ? (
+            <div className="gradient-card border border-destructive/30 rounded-2xl p-8 text-center animate-fade-in">
+              <AlertCircle className="w-12 h-12 mx-auto mb-4 text-destructive opacity-70" />
+              <p className="text-lg font-medium text-foreground mb-2">Failed to load analyses</p>
+              <p className="text-sm text-muted-foreground mb-4">{error}</p>
+              <Button variant="outline" onClick={fetchAnalyses} className="gap-2">
+                <RefreshCw className="w-4 h-4" />
+                Try Again
+              </Button>
             </div>
           ) : analyses.length === 0 ? (
-            <div className="gradient-card border border-border rounded-2xl p-12 text-center">
-              <div className="text-muted-foreground">
-                <Library className="w-12 h-12 mx-auto mb-4 opacity-50" />
-                <p className="text-lg mb-2">No analyses yet</p>
-                <p className="text-sm">Start by analyzing a repository above</p>
-              </div>
-            </div>
+            <EmptyState onAnalyze={(url) => { setRepoUrl(url); }} />
           ) : (
             <div className="space-y-4">
-              {analyses.map((analysis) => (
-                <AnalysisCard
+              {analyses.map((analysis, index) => (
+                <div
                   key={analysis.id}
-                  analysis={analysis}
-                  isExpanded={expandedId === analysis.id}
-                  onToggleExpand={() => toggleExpand(analysis.id)}
-                  onDelete={() => handleDeleteAnalysis(analysis.id)}
-                />
+                  className="animate-fade-in"
+                  style={{ animationDelay: `${index * 100}ms` }}
+                >
+                  <AnalysisCard
+                    analysis={analysis}
+                    isExpanded={expandedId === analysis.id}
+                    onToggleExpand={() => toggleExpand(analysis.id)}
+                    onDelete={() => handleDeleteAnalysis(analysis.id)}
+                  />
+                </div>
               ))}
             </div>
           )}
