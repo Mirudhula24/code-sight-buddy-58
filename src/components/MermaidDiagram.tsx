@@ -136,8 +136,10 @@ const MermaidDiagram = ({ chart, className = "" }: MermaidDiagramProps) => {
     if (!ctx) return;
 
     const img = new Image();
-    const svgBlob = new Blob([svgContent], { type: "image/svg+xml;charset=utf-8" });
-    const url = URL.createObjectURL(svgBlob);
+    
+    // Convert SVG to base64 data URL to avoid CORS/tainted canvas issues
+    const svgBase64 = btoa(unescape(encodeURIComponent(svgContent)));
+    const dataUrl = `data:image/svg+xml;base64,${svgBase64}`;
 
     img.onload = () => {
       canvas.width = img.width * 2;
@@ -152,10 +154,9 @@ const MermaidDiagram = ({ chart, className = "" }: MermaidDiagramProps) => {
       a.href = pngUrl;
       a.download = "architecture-diagram.png";
       a.click();
-      URL.revokeObjectURL(url);
     };
 
-    img.src = url;
+    img.src = dataUrl;
   };
 
   if (error) {
