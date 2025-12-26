@@ -1,39 +1,33 @@
-import { useEffect, useState } from "react";
-import { supabase } from "@/integrations/supabase/client";
-import Header from "@/components/Header";
-import Hero from "@/components/Hero";
-import Features from "@/components/Features";
-import Footer from "@/components/Footer";
+import { Brain, Compass, BookOpen } from "lucide-react";
+import FeatureCard from "./FeatureCard";
 
-const Index = () => {
-  const [history, setHistory] = useState<any[]>([]);
-
-  useEffect(() => {
-    const fetchHistory = async () => {
-      // ✅ 'as any' bypasses the database sync error in the sidebar
-      const { data, error } = await (supabase.from("repositories") as any)
-        .select("*")
-        .order("created_at", { ascending: false });
-
-      if (error) {
-        console.error("Fetch error:", error.message);
-      } else if (data) {
-        setHistory(data);
-      }
-    };
-    fetchHistory();
-  }, []);
-
+const Features = () => {
   return (
-    <div className="min-h-screen bg-background">
-      <Header />
-      <main>
-        <Hero />
-        <Features history={history} />
-      </main>
-      <Footer />
-    </div>
+    <section className="py-20 px-4">
+      <div className="max-w-6xl mx-auto">
+        <h2 className="text-3xl font-bold text-center mb-12">
+          Powerful Features
+        </h2>
+        <div className="grid md:grid-cols-3 gap-8">
+          <FeatureCard
+            icon={Brain}
+            title="AI Analysis"
+            description="Get instant insights about code structure, patterns, and potential improvements."
+          />
+          <FeatureCard
+            icon={Compass}
+            title="Smart Navigation"
+            description="Navigate complex codebases with intelligent file tree and dependency mapping."
+          />
+          <FeatureCard
+            icon={BookOpen}
+            title="Code Understanding"
+            description="Understand unfamiliar code with AI-generated explanations and documentation."
+          />
+        </div>
+      </div>
+    </section>
   );
 };
 
-export default Index;
+export default Features;
