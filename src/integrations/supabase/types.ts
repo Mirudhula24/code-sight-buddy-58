@@ -19,8 +19,10 @@ export type Database = {
           analysis_data: Json | null
           created_at: string
           id: string
+          is_public: boolean | null
           repository_name: string
           repository_url: string
+          share_token: string | null
           status: string
           updated_at: string
           user_id: string
@@ -29,8 +31,10 @@ export type Database = {
           analysis_data?: Json | null
           created_at?: string
           id?: string
+          is_public?: boolean | null
           repository_name: string
           repository_url: string
+          share_token?: string | null
           status?: string
           updated_at?: string
           user_id: string
@@ -39,8 +43,10 @@ export type Database = {
           analysis_data?: Json | null
           created_at?: string
           id?: string
+          is_public?: boolean | null
           repository_name?: string
           repository_url?: string
+          share_token?: string | null
           status?: string
           updated_at?: string
           user_id?: string

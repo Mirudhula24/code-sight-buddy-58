@@ -629,14 +629,6 @@ const DesignAnalysis = ({ designAnalysis, healthMetrics }: DesignAnalysisProps) 
           )}
         </>
       )}
-
-      {/* Export Button */}
-      <div className="pt-4">
-        <Button onClick={handleExportReport} variant="outline" className="w-full sm:w-auto gap-2">
-          <Download className="w-4 h-4" />
-          Export Health Report
-        </Button>
-      </div>
     </div>
   );
 };
