@@ -4,6 +4,7 @@ import { ExternalLink, Trash2, ChevronDown, ChevronUp, GitBranch, FileText, Layo
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import MermaidDiagram from "./MermaidDiagram";
 import DesignAnalysis from "./DesignAnalysis";
+import ShareExportDropdown from "./ShareExportDropdown";
 import { Analysis } from "@/types/analysis";
 
 interface AnalysisCardProps {
@@ -11,11 +12,22 @@ interface AnalysisCardProps {
   isExpanded: boolean;
   onToggleExpand: () => void;
   onDelete: () => void;
+  onUpdate?: () => void;
 }
 
-const AnalysisCard = ({ analysis, isExpanded, onToggleExpand, onDelete }: AnalysisCardProps) => {
+const AnalysisCard = ({ analysis, isExpanded, onToggleExpand, onDelete, onUpdate }: AnalysisCardProps) => {
   const [activeTab, setActiveTab] = useState("overview");
-  const data = analysis.analysis_data;
+  const [localAnalysis, setLocalAnalysis] = useState(analysis);
+  const data = localAnalysis.analysis_data;
+
+  const handleShareUpdate = (shareToken: string) => {
+    setLocalAnalysis((prev) => ({
+      ...prev,
+      share_token: shareToken,
+      is_public: true,
+    } as typeof prev));
+    onUpdate?.();
+  };
 
   return (
     <div className="gradient-card border border-border rounded-xl overflow-hidden hover:border-primary/40 transition-colors">
@@ -24,15 +36,15 @@ const AnalysisCard = ({ analysis, isExpanded, onToggleExpand, onDelete }: Analys
         <div className="flex items-start justify-between mb-3">
           <div className="flex-1">
             <div className="flex items-center gap-2 mb-1">
-              <h3 className="font-semibold text-foreground">{analysis.repository_name}</h3>
+              <h3 className="font-semibold text-foreground">{localAnalysis.repository_name}</h3>
               <span
                 className={`px-2 py-0.5 text-xs rounded-full ${
-                  analysis.status === "completed"
+                  localAnalysis.status === "completed"
                     ? "bg-green-500/20 text-green-400"
                     : "bg-yellow-500/20 text-yellow-400"
                 }`}
               >
-                {analysis.status}
+                {localAnalysis.status}
               </span>
             </div>
             {data?.summary && (
@@ -51,7 +63,7 @@ const AnalysisCard = ({ analysis, isExpanded, onToggleExpand, onDelete }: Analys
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
             <span className="text-xs text-muted-foreground">
-              {format(new Date(analysis.created_at), "MMM d, yyyy")}
+              {format(new Date(localAnalysis.created_at), "MMM d, yyyy")}
             </span>
             {data?.metadata?.stars !== undefined && (
               <span className="text-xs text-muted-foreground">⭐ {data.metadata.stars}</span>
@@ -72,22 +84,19 @@ const AnalysisCard = ({ analysis, isExpanded, onToggleExpand, onDelete }: Analys
               </span>
             )}
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
+            <ShareExportDropdown analysis={localAnalysis} onShareUpdate={handleShareUpdate} />
             <a
-              href={analysis.repository_url}
+              href={localAnalysis.repository_url}
               target="_blank"
               rel="noopener noreferrer"
-              className="text-primary hover:text-primary/80 transition-colors"
-              onClick={(e) => e.stopPropagation()}
+              className="text-primary hover:text-primary/80 transition-colors p-2"
             >
               <ExternalLink className="w-4 h-4" />
             </a>
             <button
-              onClick={(e) => {
-                e.stopPropagation();
-                onDelete();
-              }}
-              className="text-muted-foreground hover:text-destructive transition-colors"
+              onClick={onDelete}
+              className="text-muted-foreground hover:text-destructive transition-colors p-2"
             >
               <Trash2 className="w-4 h-4" />
             </button>

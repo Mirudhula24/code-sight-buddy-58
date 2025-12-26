@@ -78,4 +78,6 @@ export interface Analysis {
   analysis_data: AnalysisData | null;
   status: string;
   created_at: string;
+  is_public?: boolean;
+  share_token?: string;
 }
