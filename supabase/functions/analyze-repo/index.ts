@@ -235,68 +235,33 @@ serve(async (req) => {
 
     console.log(`Generated ${allChunks.length} code chunks`);
 
-    // Generate embeddings and store chunks
+    // Store chunks without embeddings (text-based retrieval)
     let successfulChunks = 0;
-    const batchSize = 20;
+    const batchSize = 50;
     
     for (let i = 0; i < allChunks.length; i += batchSize) {
       const batch = allChunks.slice(i, i + batchSize);
       
-      // Generate embeddings for batch
-      const embeddingPromises = batch.map(async (chunk) => {
-        try {
-          const embeddingResponse = await fetch('https://ai.gateway.lovable.dev/v1/embeddings', {
-            method: 'POST',
-            headers: {
-              'Authorization': `Bearer ${LOVABLE_API_KEY}`,
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-              model: 'text-embedding-3-small',
-              input: chunk.content.substring(0, 8000), // Limit input size
-            }),
-          });
-          
-          if (!embeddingResponse.ok) {
-            console.error(`Embedding failed for ${chunk.file_path}:`, await embeddingResponse.text());
-            return null;
-          }
-          
-          const embeddingData = await embeddingResponse.json();
-          const embedding = embeddingData.data?.[0]?.embedding;
-          
-          if (!embedding) return null;
-          
-          return {
-            repo_id: repoId,
-            file_path: chunk.file_path,
-            content: chunk.content,
-            embedding,
-            chunk_index: chunk.chunk_index,
-          };
-        } catch (err) {
-          console.error(`Embedding error for ${chunk.file_path}:`, err);
-          return null;
-        }
-      });
+      const chunksToInsert = batch.map((chunk) => ({
+        repo_id: repoId,
+        file_path: chunk.file_path,
+        content: chunk.content,
+        chunk_index: chunk.chunk_index,
+        // embedding is nullable, we'll use text-based search
+      }));
       
-      const embeddings = await Promise.all(embeddingPromises);
-      const validEmbeddings = embeddings.filter(e => e !== null);
+      const { error: insertError } = await (supabase
+        .from('code_chunks')
+        .insert(chunksToInsert) as any);
       
-      if (validEmbeddings.length > 0) {
-        const { error: insertError } = await (supabase
-          .from('code_chunks')
-          .insert(validEmbeddings) as any);
-        
-        if (insertError) {
-          console.error('Failed to insert chunks:', insertError);
-        } else {
-          successfulChunks += validEmbeddings.length;
-        }
+      if (insertError) {
+        console.error('Failed to insert chunks:', insertError);
+      } else {
+        successfulChunks += chunksToInsert.length;
       }
       
       // Progress logging
-      console.log(`Processed ${Math.min(i + batchSize, allChunks.length)}/${allChunks.length} chunks`);
+      console.log(`Stored ${Math.min(i + batchSize, allChunks.length)}/${allChunks.length} chunks`);
     }
 
     // Update repository status
