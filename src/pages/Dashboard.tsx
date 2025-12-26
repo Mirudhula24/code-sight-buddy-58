@@ -7,42 +7,7 @@ import { Input } from "@/components/ui/input";
 import { LogOut, Sparkles, Search, Library, PlusCircle } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import AnalysisCard from "@/components/AnalysisCard";
-
-interface AnalysisData {
-  summary?: string;
-  architecture?: string;
-  mainTechnologies?: string[];
-  keyFeatures?: string[];
-  codeQuality?: string;
-  suggestions?: string[];
-  complexity?: string;
-  mermaidDiagram?: string;
-  designAnalysis?: {
-    largeFiles?: Array<{ path: string; reason: string }>;
-    codePatterns?: Array<{ pattern: string; description: string; locations?: string[] }>;
-    architecturalPattern?: { name: string; description: string; confidence: string };
-    coupling?: { level: string; description: string; hotspots?: string[] };
-  };
-  metadata?: {
-    owner?: string;
-    repoName?: string;
-    stars?: number;
-    forks?: number;
-    language?: string;
-    languages?: string[];
-    fileCount?: number;
-    analyzedAt?: string;
-  };
-}
-
-interface Analysis {
-  id: string;
-  repository_url: string;
-  repository_name: string;
-  analysis_data: AnalysisData | null;
-  status: string;
-  created_at: string;
-}
+import { Analysis } from "@/types/analysis";
 
 const Dashboard = () => {
   const { user, signOut } = useAuth();

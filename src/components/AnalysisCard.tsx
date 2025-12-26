@@ -4,42 +4,7 @@ import { ExternalLink, Trash2, ChevronDown, ChevronUp, GitBranch, FileText, Layo
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import MermaidDiagram from "./MermaidDiagram";
 import DesignAnalysis from "./DesignAnalysis";
-
-interface AnalysisData {
-  summary?: string;
-  architecture?: string;
-  mainTechnologies?: string[];
-  keyFeatures?: string[];
-  codeQuality?: string;
-  suggestions?: string[];
-  complexity?: string;
-  mermaidDiagram?: string;
-  designAnalysis?: {
-    largeFiles?: Array<{ path: string; reason: string }>;
-    codePatterns?: Array<{ pattern: string; description: string; locations?: string[] }>;
-    architecturalPattern?: { name: string; description: string; confidence: string };
-    coupling?: { level: string; description: string; hotspots?: string[] };
-  };
-  metadata?: {
-    owner?: string;
-    repoName?: string;
-    stars?: number;
-    forks?: number;
-    language?: string;
-    languages?: string[];
-    fileCount?: number;
-    analyzedAt?: string;
-  };
-}
-
-interface Analysis {
-  id: string;
-  repository_url: string;
-  repository_name: string;
-  analysis_data: AnalysisData | null;
-  status: string;
-  created_at: string;
-}
+import { Analysis } from "@/types/analysis";
 
 interface AnalysisCardProps {
   analysis: Analysis;
@@ -288,7 +253,7 @@ const AnalysisCard = ({ analysis, isExpanded, onToggleExpand, onDelete }: Analys
             </TabsContent>
 
             <TabsContent value="design" className="p-5 bg-background/50 mt-0">
-              <DesignAnalysis designAnalysis={data.designAnalysis} />
+              <DesignAnalysis designAnalysis={data.designAnalysis} healthMetrics={data.healthMetrics} />
             </TabsContent>
           </Tabs>
         </div>
