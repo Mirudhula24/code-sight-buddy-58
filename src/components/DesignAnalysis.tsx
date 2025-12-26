@@ -22,6 +22,7 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import AnimatedHealthScore from "./AnimatedHealthScore";
 import {
   HealthMetrics,
   DesignAnalysisData,
@@ -160,45 +161,15 @@ const DesignAnalysis = ({ designAnalysis, healthMetrics }: DesignAnalysisProps) 
     URL.revokeObjectURL(url);
   };
 
-  // Circle progress calculations
-  const circumference = 2 * Math.PI * 45;
-  const strokeDashoffset = circumference - (score / 100) * circumference;
+  // Remove the manual circle calculations since we're using AnimatedHealthScore
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 animate-fade-in">
       {/* Overall Health Score */}
-      <div className="gradient-card border border-border rounded-xl p-6">
+      <div className="gradient-card border border-border rounded-xl p-6 hover:border-primary/30 transition-colors">
         <div className="flex flex-col md:flex-row items-center gap-6">
-          {/* Circular Progress */}
-          <div className="relative w-32 h-32 flex-shrink-0">
-            <svg className="w-full h-full transform -rotate-90">
-              <circle
-                cx="64"
-                cy="64"
-                r="45"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="8"
-                className="text-muted/20"
-              />
-              <circle
-                cx="64"
-                cy="64"
-                r="45"
-                fill="none"
-                strokeWidth="8"
-                strokeLinecap="round"
-                className={cn("transition-all duration-1000", scoreColors.ring)}
-                style={{
-                  strokeDasharray: circumference,
-                  strokeDashoffset: strokeDashoffset,
-                }}
-              />
-            </svg>
-            <div className="absolute inset-0 flex items-center justify-center">
-              <span className={cn("text-3xl font-bold", scoreColors.text)}>{score}</span>
-            </div>
-          </div>
+          {/* Animated Circular Progress */}
+          <AnimatedHealthScore targetScore={score} size="lg" />
 
           {/* Score Details */}
           <div className="flex-1 text-center md:text-left">
@@ -210,15 +181,15 @@ const DesignAnalysis = ({ designAnalysis, healthMetrics }: DesignAnalysisProps) 
               Based on code structure, patterns, and best practices analysis
             </p>
             <div className="flex flex-wrap gap-3 justify-center md:justify-start">
-              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium bg-red-500/10 text-red-400">
+              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium bg-red-500/10 text-red-400 transition-transform hover:scale-105">
                 <AlertCircle className="w-3 h-3" />
                 {healthMetrics?.criticalCount ?? criticalIssues.length} critical
               </span>
-              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium bg-yellow-500/10 text-yellow-400">
+              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium bg-yellow-500/10 text-yellow-400 transition-transform hover:scale-105">
                 <AlertTriangle className="w-3 h-3" />
                 {healthMetrics?.warningCount ?? warnings.length} warnings
               </span>
-              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium bg-blue-500/10 text-blue-400">
+              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium bg-blue-500/10 text-blue-400 transition-transform hover:scale-105">
                 <Lightbulb className="w-3 h-3" />
                 {healthMetrics?.suggestionCount ?? suggestions.length} suggestions
               </span>
