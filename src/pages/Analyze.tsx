@@ -21,6 +21,7 @@ import { useToast } from "@/hooks/use-toast";
 import AnalysisProgress from "@/components/AnalysisProgress";
 import MermaidDiagram from "@/components/MermaidDiagram";
 import DesignAnalysis from "@/components/DesignAnalysis";
+import ChatWithCodebase from "@/components/ChatWithCodebase";
 import { Analysis } from "@/types/analysis";
 
 const Analyze = () => {
@@ -467,14 +468,10 @@ const Analyze = () => {
 
             {/* Chat Tab */}
             <TabsContent value="chat" className="gradient-card border border-border rounded-xl p-6 mt-4">
-              <div className="flex flex-col items-center justify-center py-12 text-center">
-                <MessageSquare className="w-12 h-12 text-muted-foreground mb-4" />
-                <h4 className="text-lg font-medium text-foreground mb-2">Chat with Codebase</h4>
-                <p className="text-sm text-muted-foreground max-w-md">
-                  Coming soon! Ask questions about the repository architecture, 
-                  get explanations, and explore the codebase interactively.
-                </p>
-              </div>
+              <ChatWithCodebase 
+                repositoryUrl={activeAnalysis.repository_url} 
+                repositoryName={activeAnalysis.repository_name}
+              />
             </TabsContent>
           </Tabs>
         </div>
