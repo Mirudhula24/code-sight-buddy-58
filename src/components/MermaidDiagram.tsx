@@ -42,11 +42,53 @@ mermaid.initialize({
   },
 });
 
+// Sanitize mermaid chart to fix common syntax issues
+const sanitizeMermaidChart = (chart: string): string => {
+  if (!chart) return "";
+  
+  let sanitized = chart.trim();
+  
+  // Remove markdown code block markers if present
+  sanitized = sanitized.replace(/^```mermaid\s*/i, "");
+  sanitized = sanitized.replace(/^```\s*/i, "");
+  sanitized = sanitized.replace(/\s*```$/i, "");
+  
+  // Fix node labels with parentheses - replace (text) with text
+  sanitized = sanitized.replace(/\[([^\]]*)\(([^)]*)\)([^\]]*)\]/g, "[$1$2$3]");
+  
+  // Remove quotes from labels
+  sanitized = sanitized.replace(/\["([^"]+)"\]/g, "[$1]");
+  sanitized = sanitized.replace(/\['([^']+)'\]/g, "[$1]");
+  
+  // Ensure graph TD is on its own line
+  if (!sanitized.match(/^graph\s+(TD|TB|LR|RL|BT)/im)) {
+    sanitized = "graph TD\n" + sanitized;
+  }
+  
+  return sanitized.trim();
+};
+
+// Extract a simple text tree from the chart for fallback
+const extractTextTree = (chart: string): string[] => {
+  if (!chart) return [];
+  
+  const nodes: string[] = [];
+  const nodePattern = /([A-Za-z0-9_]+)\[([^\]]+)\]/g;
+  let match;
+  
+  while ((match = nodePattern.exec(chart)) !== null) {
+    nodes.push(match[2]);
+  }
+  
+  return nodes.length > 0 ? nodes : ["Unable to parse architecture"];
+};
+
 const MermaidDiagram = ({ chart, className = "" }: MermaidDiagramProps) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const [scale, setScale] = useState(1);
   const [error, setError] = useState<string | null>(null);
   const [svgContent, setSvgContent] = useState<string>("");
+  const [fallbackNodes, setFallbackNodes] = useState<string[]>([]);
 
   useEffect(() => {
     const renderChart = async () => {
@@ -54,12 +96,17 @@ const MermaidDiagram = ({ chart, className = "" }: MermaidDiagramProps) => {
 
       try {
         setError(null);
-        const id = `mermaid-${Date.now()}`;
-        const { svg } = await mermaid.render(id, chart);
+        setFallbackNodes([]);
+        
+        const sanitizedChart = sanitizeMermaidChart(chart);
+        const id = `mermaid-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+        
+        const { svg } = await mermaid.render(id, sanitizedChart);
         setSvgContent(svg);
       } catch (err) {
         console.error("Mermaid render error:", err);
-        setError("Failed to render diagram");
+        setError("Diagram syntax error");
+        setFallbackNodes(extractTextTree(chart));
       }
     };
 
@@ -113,8 +160,27 @@ const MermaidDiagram = ({ chart, className = "" }: MermaidDiagramProps) => {
 
   if (error) {
     return (
-      <div className={`flex items-center justify-center p-8 bg-destructive/10 rounded-lg border border-destructive/30 ${className}`}>
-        <p className="text-destructive text-sm">{error}</p>
+      <div className={`p-6 bg-muted/30 rounded-lg border border-border ${className}`}>
+        <div className="flex items-center gap-2 mb-4">
+          <div className="w-2 h-2 bg-yellow-500 rounded-full" />
+          <p className="text-sm text-muted-foreground">Architecture Overview (Text Fallback)</p>
+        </div>
+        {fallbackNodes.length > 0 ? (
+          <div className="space-y-2">
+            {fallbackNodes.map((node, index) => (
+              <div key={index} className="flex items-center gap-3">
+                <div className="flex items-center gap-1 text-muted-foreground">
+                  {index > 0 && <span className="text-xs">↓</span>}
+                </div>
+                <div className="px-3 py-2 bg-primary/10 border border-primary/20 rounded-lg text-sm text-foreground">
+                  {node}
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <p className="text-sm text-muted-foreground">Unable to render architecture diagram</p>
+        )}
       </div>
     );
   }

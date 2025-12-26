@@ -164,11 +164,21 @@ Respond with a JSON object containing these fields:
 - codeQuality: Brief assessment of code organization and quality
 - suggestions: Array of 2-3 improvement suggestions
 - complexity: "beginner", "intermediate", or "advanced"
-- mermaidDiagram: A valid Mermaid.js flowchart diagram showing the architecture. Use "graph TD" syntax. Show main components/modules, their connections, and data flow. Keep it clean and readable with 5-10 nodes. Use descriptive labels. Example format:
-  graph TD
-    A[Client] --> B[API Layer]
-    B --> C[Service Layer]
-    C --> D[(Database)]
+- mermaidDiagram: A valid Mermaid.js flowchart diagram. CRITICAL RULES FOR MERMAID SYNTAX:
+  1. Start with "graph TD" on its own line
+  2. Use simple alphanumeric node IDs (A, B, C, etc.)
+  3. Node labels in square brackets must NOT contain parentheses (), quotes, or special characters
+  4. Use hyphens or underscores instead of spaces in labels if needed
+  5. Keep labels short and simple
+  6. Example of VALID syntax:
+     graph TD
+       A[Data Input] --> B[Preprocessing]
+       B --> C[ML Model]
+       C --> D[Evaluation]
+       D --> E[Results]
+  7. Example of INVALID syntax (DO NOT USE):
+     A[Data Analysis (EDA)] - parentheses break parsing
+     B["Quoted Label"] - quotes break parsing
 - designAnalysis: Object containing:
   - largeFiles: Array of objects with "path" and "reason" for files that may be god components
   - codePatterns: Array of objects with "pattern", "description", and optional "locations" array
