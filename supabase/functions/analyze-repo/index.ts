@@ -39,15 +39,39 @@ serve(async (req) => {
     
     console.log(`Analyzing repository: ${owner}/${repoName}`);
 
+    // GitHub API headers - use token if available for higher rate limits
+    const GITHUB_TOKEN = Deno.env.get('GITHUB_TOKEN');
+    const githubHeaders: Record<string, string> = {
+      'Accept': 'application/vnd.github.v3+json',
+      'User-Agent': 'CodeSight-Analyzer'
+    };
+    if (GITHUB_TOKEN) {
+      githubHeaders['Authorization'] = `token ${GITHUB_TOKEN}`;
+    }
+
     // Fetch repository metadata from GitHub API
     const repoResponse = await fetch(`https://api.github.com/repos/${owner}/${repoName}`, {
-      headers: { 'Accept': 'application/vnd.github.v3+json' }
+      headers: githubHeaders
     });
 
     if (!repoResponse.ok) {
-      console.error('GitHub API error:', repoResponse.status);
+      const errorText = await repoResponse.text();
+      console.error('GitHub API error:', repoResponse.status, errorText);
+      
+      if (repoResponse.status === 403) {
+        return new Response(
+          JSON.stringify({ error: 'GitHub API rate limit exceeded. Please try again in a few minutes, or add a GitHub token for higher limits.' }),
+          { status: 429, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
+      if (repoResponse.status === 404) {
+        return new Response(
+          JSON.stringify({ error: 'Repository not found. Please check the URL and ensure the repository is public.' }),
+          { status: 404, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
       return new Response(
-        JSON.stringify({ error: 'Failed to fetch repository data from GitHub' }),
+        JSON.stringify({ error: `Failed to fetch repository data: ${repoResponse.status}` }),
         { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
@@ -57,7 +81,7 @@ serve(async (req) => {
     // Fetch repository file tree with sizes
     const treeResponse = await fetch(
       `https://api.github.com/repos/${owner}/${repoName}/git/trees/HEAD?recursive=1`,
-      { headers: { 'Accept': 'application/vnd.github.v3+json' } }
+      { headers: githubHeaders }
     );
 
     let fileTree: Array<{ path: string; size: number }> = [];
@@ -73,7 +97,7 @@ serve(async (req) => {
     let readmeContent = '';
     const readmeResponse = await fetch(
       `https://api.github.com/repos/${owner}/${repoName}/readme`,
-      { headers: { 'Accept': 'application/vnd.github.v3.raw' } }
+      { headers: { ...githubHeaders, 'Accept': 'application/vnd.github.v3.raw' } }
     );
     if (readmeResponse.ok) {
       readmeContent = await readmeResponse.text();
@@ -83,7 +107,7 @@ serve(async (req) => {
     // Fetch languages
     const langResponse = await fetch(
       `https://api.github.com/repos/${owner}/${repoName}/languages`,
-      { headers: { 'Accept': 'application/vnd.github.v3+json' } }
+      { headers: githubHeaders }
     );
     const languages = langResponse.ok ? await langResponse.json() : {};
 
