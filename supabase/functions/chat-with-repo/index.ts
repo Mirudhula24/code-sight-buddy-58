@@ -87,65 +87,36 @@ serve(async (req) => {
 
     console.log(`Found repository ${repository.id} with ${repository.chunks_count} chunks`);
 
-    // Generate embedding for the question
-    console.log('Generating embedding for question...');
-    
-    const embeddingResponse = await fetch('https://ai.gateway.lovable.dev/v1/embeddings', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${LOVABLE_API_KEY}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        model: 'text-embedding-3-small',
-        input: question,
-      }),
-    });
+    // Extract keywords from the question for text-based search
+    const keywords = question
+      .toLowerCase()
+      .replace(/[^\w\s]/g, ' ')
+      .split(/\s+/)
+      .filter((word: string) => word.length > 2)
+      .slice(0, 10);
 
-    if (!embeddingResponse.ok) {
-      const errorText = await embeddingResponse.text();
-      console.error('Embedding generation failed:', errorText);
+    console.log('Searching with keywords:', keywords);
+
+    // Fetch chunks using text-based search (ILIKE with keywords)
+    // We'll get more chunks and let the AI filter for relevance
+    const { data: allChunks, error: chunksError } = await (supabase
+      .from('code_chunks')
+      .select('id, file_path, content')
+      .eq('repo_id', repository.id)
+      .limit(50) as any);
+
+    if (chunksError) {
+      console.error('Chunks fetch error:', chunksError);
       return new Response(
-        JSON.stringify({ error: 'Failed to process your question. Please try again.' }),
+        JSON.stringify({ error: 'Failed to fetch code chunks.' }),
         { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
 
-    const embeddingData = await embeddingResponse.json();
-    const questionEmbedding = embeddingData.data?.[0]?.embedding;
-
-    if (!questionEmbedding) {
-      console.error('No embedding returned');
-      return new Response(
-        JSON.stringify({ error: 'Failed to process your question. Please try again.' }),
-        { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
-    }
-
-    console.log('Embedding generated, searching for relevant code chunks...');
-
-    // Perform vector similarity search filtered by repo_id
-    const { data: chunks, error: searchError } = await (supabase
-      .rpc('match_code_chunks', {
-        query_embedding: questionEmbedding,
-        match_threshold: 0.3, // Lower threshold for better recall
-        match_count: 8,
-        p_repo_id: repository.id,
-      }) as any);
-
-    if (searchError) {
-      console.error('Vector search error:', searchError);
-      return new Response(
-        JSON.stringify({ error: 'Failed to search code. Please try again.' }),
-        { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
-    }
-
-    if (!chunks || chunks.length === 0) {
-      console.log('No relevant chunks found');
+    if (!allChunks || allChunks.length === 0) {
       return new Response(
         JSON.stringify({ 
-          answer: "I don't have enough context from the codebase to answer this question. The repository has been analyzed, but no relevant code sections were found matching your query. Try asking about specific files, functions, or features mentioned in the codebase.",
+          answer: "I don't have any code context for this repository. Please re-analyze to index the codebase.",
           sourcesUsed: [],
           noContext: true
         }),
@@ -153,12 +124,31 @@ serve(async (req) => {
       );
     }
 
-    console.log(`Found ${chunks.length} relevant code chunks`);
+    // Score chunks by keyword relevance
+    const scoredChunks = allChunks.map((chunk: any) => {
+      const contentLower = chunk.content.toLowerCase();
+      const pathLower = chunk.file_path.toLowerCase();
+      let score = 0;
+      
+      for (const keyword of keywords) {
+        if (contentLower.includes(keyword)) score += 2;
+        if (pathLower.includes(keyword)) score += 3;
+      }
+      
+      return { ...chunk, score };
+    });
 
-    // Build code context from retrieved chunks
-    const codeContext = chunks
+    // Sort by score and take top relevant chunks
+    const relevantChunks = scoredChunks
+      .sort((a: any, b: any) => b.score - a.score)
+      .slice(0, 10);
+
+    console.log(`Selected ${relevantChunks.length} relevant chunks (max score: ${relevantChunks[0]?.score || 0})`);
+
+    // Build code context from chunks
+    const codeContext = relevantChunks
       .map((chunk: any, i: number) => 
-        `### Chunk ${i + 1} (${chunk.file_path}) [Relevance: ${(chunk.similarity * 100).toFixed(1)}%]\n\`\`\`\n${chunk.content}\n\`\`\``
+        `### File: ${chunk.file_path}\n\`\`\`\n${chunk.content}\n\`\`\``
       )
       .join('\n\n');
 
@@ -169,11 +159,10 @@ CRITICAL RULES - YOU MUST FOLLOW THESE:
 1. ONLY answer based on the code chunks provided below. Do NOT make assumptions.
 2. If the provided code does not contain enough information to answer the question, say "I don't have enough context from the code to answer this question" and explain what information is missing.
 3. NEVER hallucinate or guess about code that isn't shown.
-4. NEVER infer functionality from the repository name or make assumptions.
-5. When referencing code, cite the specific file path.
-6. If asked about something not in the provided context, clearly state that.
+4. When referencing code, cite the specific file path.
+5. If asked about something not in the provided context, clearly state that.
 
-Retrieved Code Context:
+Retrieved Code Context (${relevantChunks.length} files):
 ${codeContext}
 
 Remember: Base your response ONLY on the code shown above. If you can't answer from this context, say so honestly.`;
@@ -232,9 +221,9 @@ Remember: Base your response ONLY on the code shown above. If you can't answer f
     return new Response(
       JSON.stringify({
         answer,
-        sourcesUsed: chunks.map((chunk: any) => ({
+        sourcesUsed: relevantChunks.map((chunk: any) => ({
           file: chunk.file_path,
-          similarity: chunk.similarity,
+          relevance: chunk.score,
         })),
       }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
