@@ -13,6 +13,8 @@ import {
   AlertCircle,
   RefreshCw,
   Sparkles,
+  Database,
+  AlertTriangle,
 } from "lucide-react";
 
 interface ChatMessage {
@@ -26,14 +28,22 @@ interface ChatMessage {
 interface ChatWithCodebaseProps {
   repositoryUrl: string;
   repositoryName: string;
+  ingestionStatus?: string;
+  chunksCount?: number;
 }
 
-const ChatWithCodebase = ({ repositoryUrl, repositoryName }: ChatWithCodebaseProps) => {
+const ChatWithCodebase = ({ 
+  repositoryUrl, 
+  repositoryName,
+  ingestionStatus = 'completed',
+  chunksCount = 0
+}: ChatWithCodebaseProps) => {
   const { toast } = useToast();
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [errorCode, setErrorCode] = useState<string | null>(null);
   const scrollAreaRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -44,15 +54,20 @@ const ChatWithCodebase = ({ repositoryUrl, repositoryName }: ChatWithCodebasePro
     }
   }, [messages]);
 
-  // Focus input on mount
+  // Focus input on mount if chat is available
   useEffect(() => {
-    inputRef.current?.focus();
-  }, []);
+    if (ingestionStatus === 'completed' && chunksCount > 0) {
+      inputRef.current?.focus();
+    }
+  }, [ingestionStatus, chunksCount]);
+
+  const isDisabled = ingestionStatus === 'processing' || ingestionStatus === 'pending';
+  const hasNoChunks = ingestionStatus === 'completed' && chunksCount === 0;
 
   const handleSubmit = async (e?: React.FormEvent) => {
     e?.preventDefault();
     
-    if (!input.trim() || isLoading) return;
+    if (!input.trim() || isLoading || isDisabled || hasNoChunks) return;
 
     const userMessage: ChatMessage = {
       id: crypto.randomUUID(),
@@ -65,6 +80,7 @@ const ChatWithCodebase = ({ repositoryUrl, repositoryName }: ChatWithCodebasePro
     setInput("");
     setIsLoading(true);
     setError(null);
+    setErrorCode(null);
 
     try {
       // Build conversation history for context
@@ -86,6 +102,7 @@ const ChatWithCodebase = ({ repositoryUrl, repositoryName }: ChatWithCodebasePro
       }
 
       if (data?.error) {
+        setErrorCode(data.code || null);
         throw new Error(data.error);
       }
 
@@ -120,6 +137,7 @@ const ChatWithCodebase = ({ repositoryUrl, repositoryName }: ChatWithCodebasePro
         setMessages((prev) => prev.filter((m) => m.id !== lastUserMessage.id));
         setInput(lastUserMessage.content);
         setError(null);
+        setErrorCode(null);
       }
     }
   };
@@ -128,20 +146,72 @@ const ChatWithCodebase = ({ repositoryUrl, repositoryName }: ChatWithCodebasePro
     "What is the main purpose of this codebase?",
     "Explain the folder structure",
     "What are the key components?",
-    "How is authentication handled?",
+    "How does the authentication work?",
   ];
+
+  // Show processing state
+  if (ingestionStatus === 'processing' || ingestionStatus === 'pending') {
+    return (
+      <div className="flex flex-col h-[600px] items-center justify-center text-center px-4">
+        <div className="w-16 h-16 rounded-full bg-primary/10 flex items-center justify-center mb-4">
+          <Loader2 className="w-8 h-8 text-primary animate-spin" />
+        </div>
+        <h4 className="text-lg font-medium text-foreground mb-2">
+          Indexing Repository...
+        </h4>
+        <p className="text-sm text-muted-foreground max-w-sm mb-4">
+          We're analyzing and indexing the codebase. This may take a few minutes 
+          depending on the repository size.
+        </p>
+        <div className="flex items-center gap-2 text-xs text-muted-foreground">
+          <Database className="w-4 h-4" />
+          <span>Generating embeddings for code search</span>
+        </div>
+      </div>
+    );
+  }
+
+  // Show no chunks error state
+  if (hasNoChunks) {
+    return (
+      <div className="flex flex-col h-[600px] items-center justify-center text-center px-4">
+        <div className="w-16 h-16 rounded-full bg-destructive/10 flex items-center justify-center mb-4">
+          <AlertTriangle className="w-8 h-8 text-destructive" />
+        </div>
+        <h4 className="text-lg font-medium text-foreground mb-2">
+          No Code Indexed
+        </h4>
+        <p className="text-sm text-muted-foreground max-w-sm mb-4">
+          The repository analysis completed but no code chunks were indexed. 
+          This might happen if the repository has no supported source files, 
+          or if there was an issue during ingestion.
+        </p>
+        <p className="text-xs text-muted-foreground">
+          Try re-analyzing the repository to index the codebase.
+        </p>
+      </div>
+    );
+  }
 
   return (
     <div className="flex flex-col h-[600px]">
       {/* Chat Header */}
-      <div className="flex items-center gap-3 pb-4 border-b border-border">
-        <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center">
-          <Sparkles className="w-5 h-5 text-primary" />
+      <div className="flex items-center justify-between pb-4 border-b border-border">
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center">
+            <Sparkles className="w-5 h-5 text-primary" />
+          </div>
+          <div>
+            <h4 className="text-sm font-medium text-foreground">Chat with Codebase</h4>
+            <p className="text-xs text-muted-foreground">{repositoryName}</p>
+          </div>
         </div>
-        <div>
-          <h4 className="text-sm font-medium text-foreground">Chat with Codebase</h4>
-          <p className="text-xs text-muted-foreground">{repositoryName}</p>
-        </div>
+        {chunksCount > 0 && (
+          <div className="flex items-center gap-1.5 px-2 py-1 rounded-full bg-green-500/10 text-green-400 text-xs">
+            <Database className="w-3 h-3" />
+            <span>{chunksCount} chunks indexed</span>
+          </div>
+        )}
       </div>
 
       {/* Messages Area */}
@@ -153,8 +223,8 @@ const ChatWithCodebase = ({ repositoryUrl, repositoryName }: ChatWithCodebasePro
               Ask about the codebase
             </h4>
             <p className="text-sm text-muted-foreground mb-6 max-w-sm">
-              I can help you understand the repository architecture, explain code patterns, 
-              and answer questions about specific files or functions.
+              I can answer questions based on the indexed code. I'll only use 
+              information from the actual source files — no guessing!
             </p>
             <div className="flex flex-wrap gap-2 justify-center">
               {suggestedQuestions.map((question, i) => (
@@ -220,18 +290,19 @@ const ChatWithCodebase = ({ repositoryUrl, repositoryName }: ChatWithCodebasePro
                   {/* Source Files */}
                   {message.sources && message.sources.length > 0 && (
                     <div className="mt-2 flex flex-wrap gap-1">
-                      {message.sources.slice(0, 3).map((source, i) => (
+                      {message.sources.slice(0, 4).map((source, i) => (
                         <span
                           key={i}
                           className="inline-flex items-center gap-1 px-2 py-0.5 text-xs bg-muted/30 text-muted-foreground rounded-full"
+                          title={`Relevance: ${(source.similarity * 100).toFixed(0)}%`}
                         >
                           <FileCode className="w-3 h-3" />
                           {source.file.split("/").pop()}
                         </span>
                       ))}
-                      {message.sources.length > 3 && (
+                      {message.sources.length > 4 && (
                         <span className="px-2 py-0.5 text-xs text-muted-foreground">
-                          +{message.sources.length - 3} more
+                          +{message.sources.length - 4} more
                         </span>
                       )}
                     </div>
@@ -255,7 +326,7 @@ const ChatWithCodebase = ({ repositoryUrl, repositoryName }: ChatWithCodebasePro
                 </div>
                 <div className="flex items-center gap-2 p-3 rounded-xl bg-muted/50 border border-border">
                   <Loader2 className="w-4 h-4 animate-spin text-primary" />
-                  <span className="text-sm text-muted-foreground">Thinking...</span>
+                  <span className="text-sm text-muted-foreground">Searching codebase...</span>
                 </div>
               </div>
             )}
@@ -268,15 +339,17 @@ const ChatWithCodebase = ({ repositoryUrl, repositoryName }: ChatWithCodebasePro
         <div className="flex items-center gap-2 p-3 rounded-lg bg-destructive/10 border border-destructive/30 mb-3">
           <AlertCircle className="w-4 h-4 text-destructive" />
           <span className="text-sm text-destructive flex-1">{error}</span>
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={handleRetry}
-            className="text-destructive hover:text-destructive"
-          >
-            <RefreshCw className="w-4 h-4 mr-1" />
-            Retry
-          </Button>
+          {errorCode !== 'NOT_INGESTED' && errorCode !== 'NO_CHUNKS' && (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={handleRetry}
+              className="text-destructive hover:text-destructive"
+            >
+              <RefreshCw className="w-4 h-4 mr-1" />
+              Retry
+            </Button>
+          )}
         </div>
       )}
 
@@ -285,15 +358,15 @@ const ChatWithCodebase = ({ repositoryUrl, repositoryName }: ChatWithCodebasePro
         <Input
           ref={inputRef}
           type="text"
-          placeholder="Ask about the codebase..."
+          placeholder={isDisabled ? "Waiting for indexing..." : "Ask about the codebase..."}
           value={input}
           onChange={(e) => setInput(e.target.value)}
-          disabled={isLoading}
+          disabled={isLoading || isDisabled || hasNoChunks}
           className="flex-1 bg-input border-border focus:border-primary"
         />
         <Button
           type="submit"
-          disabled={!input.trim() || isLoading}
+          disabled={!input.trim() || isLoading || isDisabled || hasNoChunks}
           className="px-4"
         >
           {isLoading ? (

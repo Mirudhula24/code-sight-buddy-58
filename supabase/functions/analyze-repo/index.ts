@@ -1,9 +1,37 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.89.0";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
+
+// File extensions to include for code analysis
+const CODE_EXTENSIONS = [
+  '.ts', '.tsx', '.js', '.jsx', '.py', '.java', '.go', '.rs', '.rb', '.php',
+  '.c', '.cpp', '.h', '.hpp', '.cs', '.swift', '.kt', '.scala', '.vue', '.svelte',
+  '.html', '.css', '.scss', '.sass', '.less', '.json', '.yaml', '.yml', '.toml',
+  '.md', '.sql', '.sh', '.bash', '.zsh', '.ps1', '.dockerfile', '.graphql'
+];
+
+// Directories to ignore
+const IGNORE_DIRS = [
+  'node_modules', '.git', 'dist', 'build', '.next', '.nuxt', 'out', 'target',
+  '__pycache__', '.pytest_cache', 'venv', 'env', '.env', 'vendor', 'coverage',
+  '.idea', '.vscode', '.cache', 'tmp', 'temp', 'logs', 'assets', 'public/assets'
+];
+
+// Files to ignore
+const IGNORE_FILES = [
+  'package-lock.json', 'yarn.lock', 'pnpm-lock.yaml', 'bun.lockb',
+  '.DS_Store', 'thumbs.db', '.gitignore', '.env', '.env.local'
+];
+
+interface CodeChunk {
+  file_path: string;
+  content: string;
+  chunk_index: number;
+}
 
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
@@ -11,7 +39,7 @@ serve(async (req) => {
   }
 
   try {
-    const { repositoryUrl } = await req.json();
+    const { repositoryUrl, skipIngestion = false } = await req.json();
     
     if (!repositoryUrl) {
       return new Response(
@@ -25,6 +53,10 @@ serve(async (req) => {
       throw new Error('LOVABLE_API_KEY is not configured');
     }
 
+    const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
+    const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+    const supabase = createClient(supabaseUrl, supabaseServiceKey);
+
     // Extract owner/repo from GitHub URL
     const match = repositoryUrl.match(/github\.com\/([^\/]+)\/([^\/]+)/);
     if (!match) {
@@ -36,10 +68,11 @@ serve(async (req) => {
 
     const [, owner, repo] = match;
     const repoName = repo.replace(/\.git$/, '');
+    const fullRepoName = `${owner}/${repoName}`;
     
-    console.log(`Analyzing repository: ${owner}/${repoName}`);
+    console.log(`Analyzing repository: ${fullRepoName}`);
 
-    // GitHub API headers - use token if available for higher rate limits
+    // GitHub API headers
     const GITHUB_TOKEN = Deno.env.get('GITHUB_TOKEN');
     const githubHeaders: Record<string, string> = {
       'Accept': 'application/vnd.github.v3+json',
@@ -78,7 +111,66 @@ serve(async (req) => {
 
     const repoData = await repoResponse.json();
 
-    // Fetch repository file tree with sizes
+    // Create or update repository record
+    const { data: existingRepo } = await (supabase
+      .from('repositories')
+      .select('id, ingestion_status')
+      .eq('repo_url', repositoryUrl)
+      .maybeSingle() as any);
+
+    let repoId: string;
+    
+    if (existingRepo) {
+      repoId = existingRepo.id;
+      // Update repository status
+      await (supabase
+        .from('repositories')
+        .update({ 
+          ingestion_status: 'processing',
+          metadata: {
+            stars: repoData.stargazers_count,
+            forks: repoData.forks_count,
+            language: repoData.language,
+            description: repoData.description,
+          },
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', repoId) as any);
+      
+      // Delete existing chunks for re-ingestion
+      await (supabase
+        .from('code_chunks')
+        .delete()
+        .eq('repo_id', repoId) as any);
+      
+      console.log(`Re-processing existing repository: ${repoId}`);
+    } else {
+      const { data: newRepo, error: insertError } = await (supabase
+        .from('repositories')
+        .insert({
+          repo_url: repositoryUrl,
+          repo_name: fullRepoName,
+          ingestion_status: 'processing',
+          metadata: {
+            stars: repoData.stargazers_count,
+            forks: repoData.forks_count,
+            language: repoData.language,
+            description: repoData.description,
+          }
+        })
+        .select()
+        .single() as any);
+      
+      if (insertError) {
+        console.error('Failed to create repository record:', insertError);
+        throw new Error('Failed to create repository record');
+      }
+      
+      repoId = newRepo.id;
+      console.log(`Created new repository record: ${repoId}`);
+    }
+
+    // Fetch repository file tree
     const treeResponse = await fetch(
       `https://api.github.com/repos/${owner}/${repoName}/git/trees/HEAD?recursive=1`,
       { headers: githubHeaders }
@@ -89,11 +181,137 @@ serve(async (req) => {
       const treeData = await treeResponse.json();
       fileTree = treeData.tree
         ?.filter((item: any) => item.type === 'blob')
-        ?.map((item: any) => ({ path: item.path, size: item.size || 0 }))
-        ?.slice(0, 150) || [];
+        ?.map((item: any) => ({ path: item.path, size: item.size || 0 })) || [];
     }
 
-    // Fetch README if available
+    // Filter files for code ingestion
+    const codeFiles = fileTree.filter(file => {
+      // Check extension
+      const hasValidExtension = CODE_EXTENSIONS.some(ext => file.path.toLowerCase().endsWith(ext));
+      if (!hasValidExtension) return false;
+      
+      // Check if in ignored directory
+      const inIgnoredDir = IGNORE_DIRS.some(dir => 
+        file.path.includes(`/${dir}/`) || file.path.startsWith(`${dir}/`)
+      );
+      if (inIgnoredDir) return false;
+      
+      // Check if ignored file
+      const isIgnoredFile = IGNORE_FILES.some(f => file.path.endsWith(f));
+      if (isIgnoredFile) return false;
+      
+      // Skip very large files (>100KB)
+      if (file.size > 100000) return false;
+      
+      return true;
+    }).slice(0, 100); // Limit to 100 files
+
+    console.log(`Found ${codeFiles.length} code files to process`);
+
+    // Fetch and chunk code files
+    const allChunks: CodeChunk[] = [];
+    
+    for (const file of codeFiles) {
+      try {
+        const contentResponse = await fetch(
+          `https://api.github.com/repos/${owner}/${repoName}/contents/${file.path}`,
+          { headers: { ...githubHeaders, 'Accept': 'application/vnd.github.v3.raw' } }
+        );
+        
+        if (!contentResponse.ok) continue;
+        
+        const content = await contentResponse.text();
+        
+        // Chunk the file content
+        const chunks = chunkCode(file.path, content);
+        allChunks.push(...chunks);
+        
+        // Rate limiting - wait a bit between requests
+        await new Promise(resolve => setTimeout(resolve, 50));
+      } catch (err) {
+        console.error(`Failed to fetch ${file.path}:`, err);
+      }
+    }
+
+    console.log(`Generated ${allChunks.length} code chunks`);
+
+    // Generate embeddings and store chunks
+    let successfulChunks = 0;
+    const batchSize = 20;
+    
+    for (let i = 0; i < allChunks.length; i += batchSize) {
+      const batch = allChunks.slice(i, i + batchSize);
+      
+      // Generate embeddings for batch
+      const embeddingPromises = batch.map(async (chunk) => {
+        try {
+          const embeddingResponse = await fetch('https://ai.gateway.lovable.dev/v1/embeddings', {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${LOVABLE_API_KEY}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              model: 'text-embedding-3-small',
+              input: chunk.content.substring(0, 8000), // Limit input size
+            }),
+          });
+          
+          if (!embeddingResponse.ok) {
+            console.error(`Embedding failed for ${chunk.file_path}:`, await embeddingResponse.text());
+            return null;
+          }
+          
+          const embeddingData = await embeddingResponse.json();
+          const embedding = embeddingData.data?.[0]?.embedding;
+          
+          if (!embedding) return null;
+          
+          return {
+            repo_id: repoId,
+            file_path: chunk.file_path,
+            content: chunk.content,
+            embedding,
+            chunk_index: chunk.chunk_index,
+          };
+        } catch (err) {
+          console.error(`Embedding error for ${chunk.file_path}:`, err);
+          return null;
+        }
+      });
+      
+      const embeddings = await Promise.all(embeddingPromises);
+      const validEmbeddings = embeddings.filter(e => e !== null);
+      
+      if (validEmbeddings.length > 0) {
+        const { error: insertError } = await (supabase
+          .from('code_chunks')
+          .insert(validEmbeddings) as any);
+        
+        if (insertError) {
+          console.error('Failed to insert chunks:', insertError);
+        } else {
+          successfulChunks += validEmbeddings.length;
+        }
+      }
+      
+      // Progress logging
+      console.log(`Processed ${Math.min(i + batchSize, allChunks.length)}/${allChunks.length} chunks`);
+    }
+
+    // Update repository status
+    await (supabase
+      .from('repositories')
+      .update({ 
+        ingestion_status: successfulChunks > 0 ? 'completed' : 'failed',
+        chunks_count: successfulChunks,
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', repoId) as any);
+
+    console.log(`Ingestion complete: ${successfulChunks} chunks stored`);
+
+    // Fetch README
     let readmeContent = '';
     const readmeResponse = await fetch(
       `https://api.github.com/repos/${owner}/${repoName}/readme`,
@@ -111,9 +329,9 @@ serve(async (req) => {
     );
     const languages = langResponse.ok ? await langResponse.json() : {};
 
-    // Identify large files (potential god components)
+    // Identify large files
     const largeFiles = fileTree
-      .filter(f => f.size > 10000 && (f.path.endsWith('.ts') || f.path.endsWith('.tsx') || f.path.endsWith('.js') || f.path.endsWith('.jsx') || f.path.endsWith('.py') || f.path.endsWith('.java')))
+      .filter(f => f.size > 10000 && CODE_EXTENSIONS.some(ext => f.path.endsWith(ext)))
       .sort((a, b) => b.size - a.size)
       .slice(0, 5)
       .map(f => ({ path: f.path, size: f.size }));
@@ -131,7 +349,7 @@ Created: ${repoData.created_at}
 Last Updated: ${repoData.pushed_at}
 
 File Structure (up to 150 files):
-${fileTree.map(f => `${f.path} (${f.size} bytes)`).join('\n')}
+${fileTree.slice(0, 150).map(f => `${f.path} (${f.size} bytes)`).join('\n')}
 
 Large Files (potential god components):
 ${largeFiles.map(f => `${f.path}: ${f.size} bytes`).join('\n') || 'None detected'}
@@ -260,7 +478,6 @@ IMPORTANT:
     // Parse the AI response
     let analysis;
     try {
-      // Clean the response - remove markdown code blocks if present
       let cleanedText = analysisText.trim();
       if (cleanedText.startsWith('```json')) {
         cleanedText = cleanedText.slice(7);
@@ -314,9 +531,12 @@ IMPORTANT:
       };
     }
 
-    // Add metadata
+    // Add metadata and ingestion info
     const result = {
       ...analysis,
+      repoId,
+      ingestionStatus: successfulChunks > 0 ? 'completed' : 'failed',
+      chunksCount: successfulChunks,
       metadata: {
         owner,
         repoName,
@@ -325,11 +545,12 @@ IMPORTANT:
         language: repoData.language,
         languages: Object.keys(languages),
         fileCount: fileTree.length,
+        codeFilesProcessed: codeFiles.length,
         analyzedAt: new Date().toISOString()
       }
     };
 
-    console.log('Analysis complete with architecture diagram');
+    console.log('Analysis complete with code ingestion');
 
     return new Response(
       JSON.stringify(result),
@@ -344,3 +565,69 @@ IMPORTANT:
     );
   }
 });
+
+// Helper function to chunk code into meaningful blocks
+function chunkCode(filePath: string, content: string): CodeChunk[] {
+  const chunks: CodeChunk[] = [];
+  const lines = content.split('\n');
+  const targetChunkSize = 500; // Target ~500 tokens
+  const maxChunkSize = 800;
+  
+  let currentChunk = '';
+  let chunkIndex = 0;
+  let lineBuffer: string[] = [];
+  
+  // Add file context header
+  const fileHeader = `File: ${filePath}\n---\n`;
+  
+  for (const line of lines) {
+    lineBuffer.push(line);
+    
+    // Check for natural break points
+    const isBreakPoint = 
+      line.trim() === '' ||
+      line.match(/^(export |function |class |const |let |var |def |public |private |async )/) ||
+      line.match(/^(import |from |require\(|#include)/) ||
+      line.match(/^\s*}\s*$/) ||
+      line.match(/^\s*\/\*\*/) ||
+      line.match(/^\s*#\s+/); // Markdown headers or Python comments
+    
+    const bufferContent = lineBuffer.join('\n');
+    const estimatedTokens = bufferContent.length / 4; // Rough estimate
+    
+    // Create chunk if we hit size threshold at a break point, or if we exceed max
+    if ((isBreakPoint && estimatedTokens >= targetChunkSize) || estimatedTokens >= maxChunkSize) {
+      if (bufferContent.trim()) {
+        chunks.push({
+          file_path: filePath,
+          content: fileHeader + bufferContent.trim(),
+          chunk_index: chunkIndex++,
+        });
+      }
+      lineBuffer = [];
+    }
+  }
+  
+  // Handle remaining content
+  if (lineBuffer.length > 0) {
+    const remainingContent = lineBuffer.join('\n').trim();
+    if (remainingContent) {
+      chunks.push({
+        file_path: filePath,
+        content: fileHeader + remainingContent,
+        chunk_index: chunkIndex++,
+      });
+    }
+  }
+  
+  // If no chunks were created (small file), create single chunk
+  if (chunks.length === 0 && content.trim()) {
+    chunks.push({
+      file_path: filePath,
+      content: fileHeader + content.trim(),
+      chunk_index: 0,
+    });
+  }
+  
+  return chunks;
+}
