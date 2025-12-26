@@ -471,8 +471,6 @@ const Analyze = () => {
               <ChatWithCodebase 
                 repositoryUrl={activeAnalysis.repository_url} 
                 repositoryName={activeAnalysis.repository_name}
-                ingestionStatus={data.ingestionStatus || 'completed'}
-                chunksCount={data.chunksCount || 0}
               />
             </TabsContent>
           </Tabs>
