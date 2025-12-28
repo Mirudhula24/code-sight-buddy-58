@@ -2,444 +2,628 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
-// File extensions to index
+// File extensions to index (lowercase)
 const CODE_EXTENSIONS = [
-  '.ts', '.tsx', '.js', '.jsx', '.py', '.java', '.go', '.rs', '.rb', '.php',
-  '.c', '.cpp', '.h', '.hpp', '.cs', '.swift', '.kt', '.scala', '.vue', '.svelte',
-  '.json', '.yaml', '.yml', '.md', '.css', '.scss', '.html', '.sql', '.sh',
-  '.dockerfile', '.env.example', '.toml', '.xml', '.gradle'
+  ".ipynb",
+  ".py",
+  ".ts",
+  ".tsx",
+  ".js",
+  ".jsx",
+  ".java",
+  ".go",
+  ".rs",
+  ".rb",
+  ".php",
+  ".c",
+  ".cpp",
+  ".h",
+  ".hpp",
+  ".cs",
+  ".swift",
+  ".kt",
+  ".scala",
+  ".vue",
+  ".svelte",
+  ".json",
+  ".yaml",
+  ".yml",
+  ".toml",
+  ".xml",
+  ".md",
+  ".txt",
+  ".sql",
+  ".sh",
+  ".css",
+  ".scss",
+  ".html",
 ];
 
-// Directories to skip
 const SKIP_DIRS = [
-  'node_modules', '.git', 'dist', 'build', '.next', '__pycache__', 
-  'vendor', 'target', '.idea', '.vscode', 'coverage', '.nyc_output',
-  '.cache', '.temp', 'tmp', 'logs', 'test-results', '.husky'
+  "node_modules",
+  ".git",
+  "dist",
+  "build",
+  ".next",
+  "__pycache__",
+  "vendor",
+  "target",
+  ".idea",
+  ".vscode",
+  "coverage",
+  ".nyc_output",
+  ".cache",
+  ".temp",
+  "tmp",
+  "logs",
+  "test-results",
+  ".husky",
 ];
 
-// Files to skip
 const SKIP_FILES = [
-  'package-lock.json', 'yarn.lock', 'pnpm-lock.yaml', 'bun.lockb',
-  '.DS_Store', 'thumbs.db', '.gitignore', '.npmrc', '.nvmrc'
+  "package-lock.json",
+  "yarn.lock",
+  "pnpm-lock.yaml",
+  "bun.lockb",
+  ".ds_store",
+  "thumbs.db",
 ];
+
+const MAX_FILE_BYTES = 1_000_000; // 1MB
+const MAX_CHUNK_CHARS = 1800; // keep under 2k including headers
 
 function shouldProcessFile(path: string): boolean {
+  const lower = path.toLowerCase();
+
   for (const dir of SKIP_DIRS) {
-    if (path.includes(`/${dir}/`) || path.startsWith(`${dir}/`)) {
-      return false;
-    }
+    if (lower.includes(`/${dir}/`) || lower.startsWith(`${dir}/`)) return false;
   }
-  
-  const fileName = path.split('/').pop() || '';
-  if (SKIP_FILES.includes(fileName)) {
+
+  const fileName = lower.split("/").pop() || "";
+  if (SKIP_FILES.includes(fileName)) return false;
+
+  // quick binary/artifact exclusion
+  if (
+    lower.endsWith(".png") ||
+    lower.endsWith(".jpg") ||
+    lower.endsWith(".jpeg") ||
+    lower.endsWith(".gif") ||
+    lower.endsWith(".webp") ||
+    lower.endsWith(".svg") ||
+    lower.endsWith(".pdf") ||
+    lower.endsWith(".zip") ||
+    lower.endsWith(".tar") ||
+    lower.endsWith(".gz") ||
+    lower.endsWith(".exe") ||
+    lower.endsWith(".bin")
+  ) {
     return false;
   }
-  
-  return CODE_EXTENSIONS.some(ext => path.toLowerCase().endsWith(ext));
+
+  return CODE_EXTENSIONS.some((ext) => lower.endsWith(ext));
 }
 
 function detectLanguage(filePath: string): string {
-  const ext = filePath.split('.').pop()?.toLowerCase() || '';
-  const langMap: Record<string, string> = {
-    'ts': 'typescript', 'tsx': 'typescript', 'js': 'javascript', 'jsx': 'javascript',
-    'py': 'python', 'java': 'java', 'go': 'go', 'rs': 'rust', 'rb': 'ruby',
-    'php': 'php', 'c': 'c', 'cpp': 'cpp', 'h': 'c', 'hpp': 'cpp',
-    'cs': 'csharp', 'swift': 'swift', 'kt': 'kotlin', 'scala': 'scala',
-    'vue': 'vue', 'svelte': 'svelte', 'json': 'json', 'yaml': 'yaml',
-    'yml': 'yaml', 'md': 'markdown', 'css': 'css', 'scss': 'scss',
-    'html': 'html', 'sql': 'sql', 'sh': 'shell', 'toml': 'toml'
-  };
-  return langMap[ext] || 'text';
+  const lower = filePath.toLowerCase();
+  if (lower.endsWith(".ipynb")) return "notebook";
+  if (lower.endsWith(".py")) return "python";
+  if (lower.endsWith(".ts") || lower.endsWith(".tsx")) return "typescript";
+  if (lower.endsWith(".js") || lower.endsWith(".jsx")) return "javascript";
+  if (lower.endsWith(".java")) return "java";
+  if (lower.endsWith(".go")) return "go";
+  if (lower.endsWith(".rs")) return "rust";
+  if (lower.endsWith(".cpp") || lower.endsWith(".hpp")) return "cpp";
+  if (lower.endsWith(".c") || lower.endsWith(".h")) return "c";
+  if (lower.endsWith(".json")) return "json";
+  if (lower.endsWith(".yaml") || lower.endsWith(".yml")) return "yaml";
+  if (lower.endsWith(".md")) return "markdown";
+  if (lower.endsWith(".toml")) return "toml";
+  if (lower.endsWith(".sql")) return "sql";
+  return "text";
 }
 
-interface Chunk {
+function encodePath(path: string): string {
+  // encode each segment but keep slashes
+  return path.split("/").map(encodeURIComponent).join("/");
+}
+
+function base64ToString(b64: string): string {
+  const bin = atob(b64.replace(/\n/g, ""));
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  return new TextDecoder().decode(bytes);
+}
+
+type ChunkInsert = {
+  repo_id: string;
+  file_path: string;
   content: string;
-  index: number;
-  startLine: number;
-  endLine: number;
-  metadata: {
-    language: string;
-    fileType: string;
-    hasImports: boolean;
-    hasExports: boolean;
-    hasFunctions: boolean;
-    hasClasses: boolean;
-  };
-}
+  chunk_index: number;
+  metadata: Record<string, unknown>;
+};
 
-function chunkContent(content: string, filePath: string, maxChunkSize = 1000, overlap = 200): Chunk[] {
-  const chunks: Chunk[] = [];
-  const language = detectLanguage(filePath);
-  const lines = content.split('\n');
-  
-  // Detect code patterns
+function chunkTextByLines(opts: {
+  filePath: string;
+  content: string;
+  headerPrefix?: string;
+  language?: string;
+  baseMetadata?: Record<string, unknown>;
+  maxChars?: number;
+}): Array<{ text: string; startLine: number; endLine: number; chunkIndex: number; meta: Record<string, unknown> }> {
+  const { filePath, content, headerPrefix, language, baseMetadata, maxChars } = opts;
+  const lines = content.split("\n");
+  const max = maxChars ?? MAX_CHUNK_CHARS;
+
+  const header = headerPrefix ?? `// File: ${filePath}`;
+  const lang = language ?? detectLanguage(filePath);
+
   const hasImports = /^(import|from|require|use|using)\s/m.test(content);
-  const hasExports = /^(export|module\.exports|public\s+class)/m.test(content);
+  const hasExports = /^(export|module\.exports|public\s+class)\b/m.test(content);
   const hasFunctions = /\b(function|def|fn|func|async|=>)\b/.test(content);
   const hasClasses = /\b(class|interface|struct|enum|trait)\b/.test(content);
-  
-  const baseMetadata = {
-    language,
-    fileType: filePath.split('.').pop() || 'unknown',
+
+  const metaBase: Record<string, unknown> = {
+    language: lang,
+    fileType: filePath.split(".").pop() || "unknown",
     hasImports,
     hasExports,
     hasFunctions,
-    hasClasses
+    hasClasses,
+    ...baseMetadata,
   };
-  
-  // If content is small enough, keep as single chunk
-  if (content.length <= maxChunkSize) {
-    chunks.push({
-      content: `// File: ${filePath}\n${content}`,
-      index: 0,
-      startLine: 1,
-      endLine: lines.length,
-      metadata: baseMetadata
-    });
-    return chunks;
-  }
-  
-  // Split into overlapping chunks
-  let currentChunk = `// File: ${filePath}\n`;
+
+  const out: Array<{ text: string; startLine: number; endLine: number; chunkIndex: number; meta: Record<string, unknown> }> = [];
+
   let chunkIndex = 0;
   let startLine = 1;
-  let lineCount = 0;
-  let overlapBuffer: string[] = [];
-  
+  let current = `${header}\n`;
+  let currentLineCount = 0;
+
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
-    
-    // If adding this line would exceed limit, save current chunk
-    if (currentChunk.length + line.length + 1 > maxChunkSize && currentChunk.length > 100) {
-      chunks.push({
-        content: currentChunk.trim(),
-        index: chunkIndex,
+
+    if (current.length + line.length + 1 > max && currentLineCount > 0) {
+      out.push({
+        text: current.trimEnd(),
         startLine,
-        endLine: startLine + lineCount - 1,
-        metadata: baseMetadata
+        endLine: startLine + currentLineCount - 1,
+        chunkIndex,
+        meta: metaBase,
       });
-      
-      chunkIndex++;
-      startLine = Math.max(1, i - Math.floor(overlap / 50)); // Approximate lines for overlap
-      lineCount = 0;
-      
-      // Start new chunk with overlap from previous
-      currentChunk = `// File: ${filePath} (chunk ${chunkIndex + 1})\n`;
-      
-      // Add overlap from last few lines
+
+      // overlap: keep last ~5 lines
       const overlapLines = lines.slice(Math.max(0, i - 5), i);
-      if (overlapLines.length > 0) {
-        currentChunk += overlapLines.join('\n') + '\n';
-      }
+      chunkIndex++;
+      startLine = Math.max(1, i - overlapLines.length + 1);
+      currentLineCount = overlapLines.length;
+      current = `${header} (chunk ${chunkIndex + 1})\n${overlapLines.join("\n")}\n`;
     }
-    
-    currentChunk += line + '\n';
-    lineCount++;
+
+    current += line + "\n";
+    currentLineCount++;
   }
-  
-  // Don't forget the last chunk
-  if (currentChunk.trim().length > 50) {
-    chunks.push({
-      content: currentChunk.trim(),
-      index: chunkIndex,
+
+  if (current.trim().length > header.length + 10) {
+    out.push({
+      text: current.trimEnd(),
       startLine,
       endLine: lines.length,
-      metadata: baseMetadata
+      chunkIndex,
+      meta: metaBase,
     });
   }
-  
+
+  return out;
+}
+
+function parseNotebookToChunks(filePath: string, notebookText: string): Array<{ text: string; meta: Record<string, unknown>; order: number }> {
+  const chunks: Array<{ text: string; meta: Record<string, unknown>; order: number }> = [];
+
+  let json: any;
+  try {
+    json = JSON.parse(notebookText);
+  } catch {
+    return [];
+  }
+
+  const kernelLang =
+    json?.metadata?.kernelspec?.language ||
+    json?.metadata?.language_info?.name ||
+    "python";
+
+  const cells: any[] = Array.isArray(json?.cells) ? json.cells : [];
+
+  for (let i = 0; i < cells.length; i++) {
+    const cell = cells[i];
+    const cellType = String(cell?.cell_type || "unknown");
+    const executionCount = cell?.execution_count ?? null;
+
+    const source = Array.isArray(cell?.source) ? cell.source.join("") : String(cell?.source || "");
+    const text = source.trim();
+    if (!text) continue;
+
+    const header = `// File: ${filePath}\n// Notebook cell ${i + 1}/${cells.length} (${cellType})`;
+
+    const language = cellType === "code" ? String(kernelLang) : "markdown";
+
+    // chunk within the cell if needed
+    const byLines = chunkTextByLines({
+      filePath,
+      content: text,
+      headerPrefix: header,
+      language,
+      baseMetadata: {
+        notebook: true,
+        cellType,
+        cellIndex: i,
+        executionCount,
+      },
+      maxChars: MAX_CHUNK_CHARS,
+    });
+
+    for (const part of byLines) {
+      chunks.push({
+        text: part.text,
+        meta: {
+          ...part.meta,
+          cellType,
+          cellIndex: i,
+          executionCount,
+          startLine: part.startLine,
+          endLine: part.endLine,
+        },
+        order: i * 1000 + part.chunkIndex,
+      });
+    }
+  }
+
   return chunks;
 }
 
-// Generate embeddings using Lovable AI
-async function generateEmbedding(text: string, apiKey: string): Promise<number[] | null> {
-  try {
-    // Use Lovable AI to generate a semantic representation
-    // We'll ask it to create a structured summary that we can use for matching
-    const response = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${apiKey}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        model: 'google/gemini-2.5-flash',
-        messages: [
-          {
-            role: 'system',
-            content: `You are a code analysis assistant. Given a code snippet, output ONLY a JSON array of exactly 384 numbers between -1 and 1 representing the semantic meaning of the code. Focus on: purpose, patterns, functions, classes, imports, dependencies. Output ONLY the JSON array, nothing else.`
-          },
-          {
-            role: 'user',
-            content: text.slice(0, 2000) // Limit input size
-          }
-        ],
-        temperature: 0
-      }),
-    });
-
-    if (!response.ok) {
-      console.log('Embedding generation failed, skipping:', response.status);
-      return null;
-    }
-
-    const data = await response.json();
-    const content = data.choices?.[0]?.message?.content;
-    
-    if (content) {
-      try {
-        // Try to parse the JSON array
-        const embedding = JSON.parse(content);
-        if (Array.isArray(embedding) && embedding.length === 384) {
-          return embedding;
-        }
-      } catch {
-        // If parsing fails, return null
-        console.log('Could not parse embedding response');
-      }
-    }
-    
-    return null;
-  } catch (err) {
-    console.error('Embedding error:', err);
-    return null;
+async function getDefaultBranch(owner: string, repo: string, headers: Record<string, string>) {
+  const resp = await fetch(`https://api.github.com/repos/${owner}/${repo}`, { headers });
+  if (!resp.ok) {
+    const t = await resp.text();
+    throw new Error(`GitHub repo metadata failed: ${resp.status} ${t}`);
   }
+  const data = await resp.json();
+  return String(data?.default_branch || "main");
+}
+
+async function getTreeSha(owner: string, repo: string, branch: string, headers: Record<string, string>) {
+  const branchResp = await fetch(`https://api.github.com/repos/${owner}/${repo}/branches/${encodeURIComponent(branch)}`, { headers });
+  if (!branchResp.ok) {
+    const t = await branchResp.text();
+    throw new Error(`GitHub branch fetch failed: ${branchResp.status} ${t}`);
+  }
+  const branchData = await branchResp.json();
+  const treeSha = branchData?.commit?.commit?.tree?.sha as string | undefined;
+  if (treeSha) return treeSha;
+
+  const commitSha = branchData?.commit?.sha as string | undefined;
+  if (!commitSha) throw new Error("Could not resolve commit SHA for default branch");
+
+  const commitResp = await fetch(`https://api.github.com/repos/${owner}/${repo}/git/commits/${commitSha}`, { headers });
+  if (!commitResp.ok) {
+    const t = await commitResp.text();
+    throw new Error(`GitHub commit fetch failed: ${commitResp.status} ${t}`);
+  }
+  const commitData = await commitResp.json();
+  const treeSha2 = commitData?.tree?.sha as string | undefined;
+  if (!treeSha2) throw new Error("Could not resolve tree SHA from commit");
+  return treeSha2;
 }
 
 serve(async (req) => {
-  if (req.method === 'OPTIONS') {
+  if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
   }
 
   try {
-    const { repositoryUrl, analysisId } = await req.json();
-    
+    const { repositoryUrl, forceReindex = true } = await req.json();
+
     if (!repositoryUrl) {
-      return new Response(
-        JSON.stringify({ error: 'Repository URL is required' }),
-        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
+      return new Response(JSON.stringify({ error: "Repository URL is required" }), {
+        status: 400,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
     }
 
-    const match = repositoryUrl.match(/github\.com\/([^\/]+)\/([^\/]+)/);
+    const match = repositoryUrl.match(/github\.com\/([^\/]+)\/([^\/]+)/i);
     if (!match) {
-      return new Response(
-        JSON.stringify({ error: 'Invalid GitHub URL format' }),
-        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
+      return new Response(JSON.stringify({ error: "Invalid GitHub URL format" }), {
+        status: 400,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
     }
 
-    const [, owner, repo] = match;
-    const repoName = repo.replace(/\.git$/, '');
-    
-    console.log(`Starting indexing for ${owner}/${repoName}`);
+    const [, ownerRaw, repoRaw] = match;
+    const owner = ownerRaw;
+    const repo = repoRaw.replace(/\.git$/i, "");
 
-    const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
-    const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+    console.log(`Starting indexing for ${owner}/${repo}`);
+
+    const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+    const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const supabase = createClient(supabaseUrl, supabaseKey);
-    
-    const LOVABLE_API_KEY = Deno.env.get('LOVABLE_API_KEY');
 
-    const GITHUB_TOKEN = Deno.env.get('GITHUB_TOKEN');
+    const GITHUB_TOKEN = Deno.env.get("GITHUB_TOKEN");
     const githubHeaders: Record<string, string> = {
-      'Accept': 'application/vnd.github.v3+json',
-      'User-Agent': 'CodeSight-Indexer'
+      Accept: "application/vnd.github.v3+json",
+      "User-Agent": "CodeSight-Indexer",
     };
-    if (GITHUB_TOKEN) {
-      githubHeaders['Authorization'] = `token ${GITHUB_TOKEN}`;
-    }
+    if (GITHUB_TOKEN) githubHeaders.Authorization = `token ${GITHUB_TOKEN}`;
 
-    // Check or create repository record
-    let repoId: string;
-    const { data: existingRepo } = await supabase
-      .from('repositories')
-      .select('id')
-      .eq('repo_url', repositoryUrl)
+    // Upsert repository row (avoids duplicate key errors if indexing is triggered twice)
+    const { data: repoRow, error: repoUpsertError } = await supabase
+      .from("repositories")
+      .upsert(
+        {
+          repo_url: repositoryUrl,
+          repo_name: `${owner}/${repo}`,
+          ingestion_status: "indexing",
+          chunks_count: 0,
+          metadata: {
+            progress: 0,
+            filesProcessed: 0,
+            totalFiles: 0,
+            currentFile: null,
+            failedFilesCount: 0,
+            failedFilesSample: [],
+          },
+        },
+        { onConflict: "repo_url" }
+      )
+      .select("*")
       .single();
 
-    if (existingRepo) {
-      repoId = existingRepo.id;
-      await supabase
-        .from('code_chunks')
-        .delete()
-        .eq('repo_id', repoId);
-      
-      await supabase
-        .from('repositories')
-        .update({ ingestion_status: 'indexing', chunks_count: 0 })
-        .eq('id', repoId);
-    } else {
-      const { data: newRepo, error: createError } = await supabase
-        .from('repositories')
-        .insert({
-          repo_url: repositoryUrl,
-          repo_name: `${owner}/${repoName}`,
-          ingestion_status: 'indexing',
-          chunks_count: 0
-        })
-        .select()
-        .single();
-      
-      if (createError) throw createError;
-      repoId = newRepo.id;
+    if (repoUpsertError || !repoRow) {
+      console.error("Repo upsert error:", repoUpsertError);
+      throw repoUpsertError || new Error("Failed to upsert repository row");
     }
 
-    // Fetch repository tree
+    const repoId = repoRow.id as string;
+
+    if (forceReindex) {
+      await supabase.from("code_chunks").delete().eq("repo_id", repoId);
+    }
+
+    // Resolve default branch + tree sha (HEAD is not reliable)
+    const defaultBranch = await getDefaultBranch(owner, repo, githubHeaders);
+    const treeSha = await getTreeSha(owner, repo, defaultBranch, githubHeaders);
+
     const treeResponse = await fetch(
-      `https://api.github.com/repos/${owner}/${repoName}/git/trees/HEAD?recursive=1`,
+      `https://api.github.com/repos/${owner}/${repo}/git/trees/${treeSha}?recursive=1`,
       { headers: githubHeaders }
     );
 
     if (!treeResponse.ok) {
       const errorText = await treeResponse.text();
-      console.error('GitHub tree error:', treeResponse.status, errorText);
-      
-      await supabase
-        .from('repositories')
-        .update({ ingestion_status: 'failed' })
-        .eq('id', repoId);
-      
-      return new Response(
-        JSON.stringify({ error: `Failed to fetch repository: ${treeResponse.status}` }),
-        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
+      console.error("GitHub tree error:", treeResponse.status, errorText);
+      await supabase.from("repositories").update({ ingestion_status: "failed" }).eq("id", repoId);
+      return new Response(JSON.stringify({ error: `Failed to fetch repository tree: ${treeResponse.status}` }), {
+        status: 400,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
     }
 
     const treeData = await treeResponse.json();
-    const allFiles = treeData.tree?.filter((item: any) => 
-      item.type === 'blob' && shouldProcessFile(item.path)
-    ) || [];
-    
-    // Sort files by importance (prioritize main source files)
-    const priorityOrder = ['README', 'src/', 'app/', 'lib/', 'components/', 'pages/', 'api/'];
-    const files = allFiles.sort((a: any, b: any) => {
-      const aScore = priorityOrder.findIndex(p => a.path.includes(p));
-      const bScore = priorityOrder.findIndex(p => b.path.includes(p));
-      return (bScore !== -1 ? bScore : 10) - (aScore !== -1 ? aScore : 10);
-    }).slice(0, 150); // Increased limit
 
-    console.log(`Found ${files.length} files to index (from ${allFiles.length} total)`);
+    const allFiles: Array<{ path: string; type: string }> = (treeData?.tree || [])
+      .filter((item: any) => item?.type === "blob" && typeof item?.path === "string")
+      .map((item: any) => ({ path: item.path as string, type: item.type as string }))
+      .filter((item: { path: string; type: string }) => shouldProcessFile(item.path));
+
+    console.log(`Found ${allFiles.length} indexable files (tree truncated: ${Boolean(treeData?.truncated)})`);
+
+    // prioritize notebooks + source before docs
+    const files = allFiles.sort((a, b) => {
+      const ap = a.path.toLowerCase();
+      const bp = b.path.toLowerCase();
+      const score = (p: string) => {
+        if (p.endsWith(".ipynb")) return 100;
+        if (p.includes("/src/") || p.startsWith("src/")) return 90;
+        if (p.endsWith(".py") || p.endsWith(".ts") || p.endsWith(".tsx") || p.endsWith(".js") || p.endsWith(".jsx")) return 80;
+        if (p.endsWith(".md")) return 20;
+        return 50;
+      };
+      return score(bp) - score(ap);
+    });
+
+    // Store totalFiles immediately
+    await supabase
+      .from("repositories")
+      .update({
+        metadata: {
+          ...(repoRow.metadata as any),
+          totalFiles: files.length,
+          totalAvailableFiles: allFiles.length,
+          progress: 0,
+        },
+      })
+      .eq("id", repoId);
 
     let totalChunks = 0;
     let processedFiles = 0;
-    const batchSize = 5; // Smaller batches for stability
+    let failedFilesCount = 0;
+    const failedFilesSample: string[] = [];
+
+    const batchSize = 3;
 
     for (let i = 0; i < files.length; i += batchSize) {
       const batch = files.slice(i, i + batchSize);
-      
-      const filePromises = batch.map(async (file: any) => {
-        try {
-          const contentResponse = await fetch(
-            `https://api.github.com/repos/${owner}/${repoName}/contents/${file.path}`,
-            { headers: { ...githubHeaders, 'Accept': 'application/vnd.github.v3.raw' } }
-          );
-          
-          if (!contentResponse.ok) {
-            console.log(`Skipping ${file.path}: ${contentResponse.status}`);
+
+      const batchResults = await Promise.all(
+        batch.map(async (file) => {
+          const filePath = file.path;
+
+          try {
+            // Update current file (best-effort)
+            await supabase
+              .from("repositories")
+              .update({
+                metadata: {
+                  ...(repoRow.metadata as any),
+                  totalFiles: files.length,
+                  filesProcessed: processedFiles,
+                  progress: Math.round((processedFiles / Math.max(1, files.length)) * 100),
+                  currentFile: filePath,
+                  failedFilesCount,
+                  failedFilesSample,
+                },
+              })
+              .eq("id", repoId);
+
+            const contentResp = await fetch(
+              `https://api.github.com/repos/${owner}/${repo}/contents/${encodePath(filePath)}`,
+              { headers: githubHeaders }
+            );
+
+            if (!contentResp.ok) {
+              const t = await contentResp.text();
+              console.log(`Skipping ${filePath}: ${contentResp.status} ${t}`);
+              throw new Error(`contents fetch failed: ${contentResp.status}`);
+            }
+
+            const contentJson = await contentResp.json();
+
+            if (Array.isArray(contentJson) || contentJson?.type !== "file") {
+              return [];
+            }
+
+            const size = Number(contentJson?.size || 0);
+            if (size > MAX_FILE_BYTES) {
+              console.log(`Skipping large file (>1MB): ${filePath} (${size} bytes)`);
+              return [];
+            }
+
+            let text = "";
+            if (contentJson?.content && contentJson?.encoding === "base64") {
+              text = base64ToString(String(contentJson.content));
+            } else if (contentJson?.download_url) {
+              // fallback to download_url
+              const rawResp = await fetch(String(contentJson.download_url), { headers: githubHeaders });
+              if (!rawResp.ok) throw new Error(`download_url fetch failed: ${rawResp.status}`);
+              text = await rawResp.text();
+            } else {
+              return [];
+            }
+
+            // Skip binary-looking
+            if (text.includes("\x00")) {
+              console.log(`Skipping binary-looking content: ${filePath}`);
+              return [];
+            }
+
+            if (filePath.toLowerCase().endsWith(".ipynb")) {
+              const nbChunks = parseNotebookToChunks(filePath, text);
+              const inserts: ChunkInsert[] = nbChunks.map((c) => ({
+                repo_id: repoId,
+                file_path: filePath,
+                content: c.text,
+                chunk_index: c.order,
+                metadata: c.meta,
+              }));
+              return inserts;
+            }
+
+            const parts = chunkTextByLines({ filePath, content: text, maxChars: MAX_CHUNK_CHARS });
+            const inserts: ChunkInsert[] = parts.map((p) => ({
+              repo_id: repoId,
+              file_path: filePath,
+              content: p.text,
+              chunk_index: p.chunkIndex,
+              metadata: {
+                ...p.meta,
+                startLine: p.startLine,
+                endLine: p.endLine,
+              },
+            }));
+
+            return inserts;
+          } catch (e) {
+            failedFilesCount++;
+            if (failedFilesSample.length < 20) failedFilesSample.push(filePath);
+            console.error(`Error processing ${filePath}:`, e);
             return [];
-          }
-          
-          const content = await contentResponse.text();
-          
-          if (content.length > 100000 || content.includes('\x00')) {
-            console.log(`Skipping large/binary file: ${file.path}`);
-            return [];
-          }
-          
-          return chunkContent(content, file.path);
-        } catch (err) {
-          console.error(`Error processing ${file.path}:`, err);
-          return [];
-        }
-      });
-      
-      const fileChunks = await Promise.all(filePromises);
-      
-      // Flatten and prepare for insertion
-      const chunksToInsert = fileChunks.flatMap((chunks, idx) => 
-        chunks.map((chunk: Chunk) => ({
-          repo_id: repoId,
-          file_path: batch[idx].path,
-          content: chunk.content,
-          chunk_index: chunk.index,
-          metadata: {
-            ...chunk.metadata,
-            startLine: chunk.startLine,
-            endLine: chunk.endLine
-          }
-        }))
-      );
-      
-      if (chunksToInsert.length > 0) {
-        const { error: insertError } = await supabase
-          .from('code_chunks')
-          .insert(chunksToInsert);
-        
-        if (insertError) {
-          console.error('Insert error:', insertError);
-        } else {
-          totalChunks += chunksToInsert.length;
-        }
-      }
-      
-      processedFiles += batch.length;
-      
-      // Update progress
-      await supabase
-        .from('repositories')
-        .update({ 
-          chunks_count: totalChunks,
-          metadata: { 
-            progress: Math.round((processedFiles / files.length) * 100),
-            filesProcessed: processedFiles,
-            totalFiles: files.length,
-            totalAvailableFiles: allFiles.length
           }
         })
-        .eq('id', repoId);
-      
+      );
+
+      const inserts = batchResults.flat();
+      if (inserts.length > 0) {
+        const { error: insertError } = await supabase.from("code_chunks").insert(inserts);
+        if (insertError) {
+          console.error("Insert error:", insertError);
+        } else {
+          totalChunks += inserts.length;
+        }
+      }
+
+      processedFiles += batch.length;
+
+      await supabase
+        .from("repositories")
+        .update({
+          chunks_count: totalChunks,
+          metadata: {
+            ...(repoRow.metadata as any),
+            progress: Math.round((processedFiles / Math.max(1, files.length)) * 100),
+            filesProcessed: processedFiles,
+            totalFiles: files.length,
+            currentFile: null,
+            failedFilesCount,
+            failedFilesSample,
+          },
+        })
+        .eq("id", repoId);
+
       console.log(`Progress: ${processedFiles}/${files.length} files, ${totalChunks} chunks`);
-      
-      // Small delay to avoid rate limits
-      await new Promise(resolve => setTimeout(resolve, 100));
+
+      // gentle delay to reduce API throttling
+      await new Promise((r) => setTimeout(r, 120));
     }
 
-    // Mark as complete
     await supabase
-      .from('repositories')
-      .update({ 
-        ingestion_status: 'completed', 
+      .from("repositories")
+      .update({
+        ingestion_status: "completed",
         chunks_count: totalChunks,
         metadata: {
+          ...(repoRow.metadata as any),
+          progress: 100,
           filesProcessed: processedFiles,
           totalFiles: files.length,
-          totalAvailableFiles: allFiles.length,
-          completedAt: new Date().toISOString()
-        }
+          currentFile: null,
+          failedFilesCount,
+          failedFilesSample,
+          completedAt: new Date().toISOString(),
+        },
       })
-      .eq('id', repoId);
+      .eq("id", repoId);
 
-    console.log(`Indexing complete: ${totalChunks} chunks from ${processedFiles} files`);
+    console.log(`Indexing complete: ${totalChunks} chunks from ${processedFiles} files (failed: ${failedFilesCount})`);
 
     return new Response(
-      JSON.stringify({ 
-        success: true, 
-        repoId, 
+      JSON.stringify({
+        success: true,
+        repoId,
         chunksCount: totalChunks,
-        filesProcessed: processedFiles 
+        filesProcessed: processedFiles,
+        totalFiles: files.length,
+        failedFilesCount,
       }),
-      { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      { headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
-
   } catch (error) {
-    console.error('Error in index-repo:', error);
-    return new Response(
-      JSON.stringify({ error: error instanceof Error ? error.message : 'Indexing failed' }),
-      { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-    );
+    console.error("Error in index-repo:", error);
+    return new Response(JSON.stringify({ error: error instanceof Error ? error.message : "Indexing failed" }), {
+      status: 500,
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
   }
 });
