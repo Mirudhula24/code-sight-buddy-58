@@ -270,31 +270,39 @@ const Library = () => {
               </div>
 
               {/* Actions */}
-              <div className="flex items-center gap-2 pt-3 border-t border-border">
-                <Button
-                  variant="default"
-                  size="sm"
-                  onClick={() => handleOpenAnalysis(analysis.id)}
-                  className="flex-1 gap-2"
-                >
-                  <FolderOpen className="w-4 h-4" />
-                  Open
-                </Button>
-                <ShareExportDropdown analysis={analysis} onShareUpdate={fetchAnalyses} />
-                <a
-                  href={analysis.repository_url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="p-2 text-muted-foreground hover:text-primary transition-colors"
-                >
-                  <ExternalLink className="w-4 h-4" />
-                </a>
-                <button
-                  onClick={() => handleDeleteAnalysis(analysis.id)}
-                  className="p-2 text-muted-foreground hover:text-destructive transition-colors"
-                >
-                  <Trash2 className="w-4 h-4" />
-                </button>
+              <div className="flex flex-col gap-2 pt-3 border-t border-border">
+                <div className="flex items-center gap-2">
+                  <Button
+                    variant="default"
+                    size="sm"
+                    onClick={() => handleOpenAnalysis(analysis.id)}
+                    className="flex-1 gap-2"
+                  >
+                    <FolderOpen className="w-4 h-4" />
+                    Open
+                  </Button>
+                  <ShareExportDropdown analysis={analysis} onShareUpdate={fetchAnalyses} />
+                </div>
+                <div className="flex items-center justify-between">
+                  <a
+                    href={analysis.repository_url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex items-center gap-1 text-xs text-muted-foreground hover:text-primary transition-colors"
+                  >
+                    <ExternalLink className="w-3 h-3" />
+                    View on GitHub
+                  </a>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => handleDeleteAnalysis(analysis.id)}
+                    className="h-7 px-2 text-muted-foreground hover:text-destructive hover:bg-destructive/10"
+                  >
+                    <Trash2 className="w-3 h-3 mr-1" />
+                    Delete
+                  </Button>
+                </div>
               </div>
             </div>
           ))}
