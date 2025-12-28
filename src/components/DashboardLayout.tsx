@@ -13,6 +13,7 @@ import {
   ChevronLeft,
   ChevronRight,
   Menu,
+  HelpCircle,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
@@ -27,6 +28,7 @@ const navItems: NavItem[] = [
   { title: "Analyze", icon: Search, href: "/dashboard/analyze" },
   { title: "Library", icon: Library, href: "/dashboard/library" },
   { title: "Insights", icon: BarChart3, href: "/dashboard/insights" },
+  { title: "Help", icon: HelpCircle, href: "/dashboard/docs" },
   { title: "Settings", icon: Settings, href: "/dashboard/settings" },
 ];
 
