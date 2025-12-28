@@ -40,42 +40,61 @@ function extractKeywords(message: string): string[] {
   ])];
 }
 
-// Score chunks based on keyword relevance
+// Score chunks based on keyword relevance - PRIORITIZE CODE over docs
 function scoreChunk(chunk: any, keywords: string[]): number {
   let score = 0;
   const content = chunk.content.toLowerCase();
   const filePath = chunk.file_path.toLowerCase();
+  const metadata = chunk.metadata || {};
   
   for (const keyword of keywords) {
     // Exact matches in content
-    const contentMatches = (content.match(new RegExp(keyword, 'g')) || []).length;
-    score += contentMatches * 2;
-    
-    // Matches in file path are more valuable
-    if (filePath.includes(keyword)) {
-      score += 10;
-    }
+    const contentMatches = (content.match(new RegExp(`\\b${keyword}\\b`, 'g')) || []).length;
+    score += contentMatches * 3;
     
     // Partial matches
     if (content.includes(keyword)) {
-      score += 1;
+      score += 2;
+    }
+    
+    // Matches in file path are valuable
+    if (filePath.includes(keyword)) {
+      score += 8;
     }
   }
   
-  // Boost important file types
-  if (filePath.includes('readme')) score += 5;
-  if (filePath.endsWith('.ts') || filePath.endsWith('.tsx')) score += 2;
-  if (filePath.includes('index.')) score += 3;
-  if (filePath.includes('main.')) score += 3;
-  if (filePath.includes('app.')) score += 3;
+  // CRITICAL: Boost code files OVER documentation
+  // Notebooks with code cells get highest priority
+  if (metadata.cellType === 'code') {
+    score += 25; // Big boost for actual code cells
+  }
   
-  // Boost based on metadata
-  const metadata = chunk.metadata || {};
-  if (metadata.hasExports) score += 1;
-  if (metadata.hasFunctions) score += 1;
-  if (metadata.hasClasses) score += 2;
+  // Code files get priority
+  if (filePath.endsWith('.py')) score += 20;
+  if (filePath.endsWith('.ipynb') && metadata.cellType === 'code') score += 20;
+  if (filePath.endsWith('.ts') || filePath.endsWith('.tsx')) score += 18;
+  if (filePath.endsWith('.js') || filePath.endsWith('.jsx')) score += 18;
+  if (filePath.endsWith('.java') || filePath.endsWith('.go') || filePath.endsWith('.rs')) score += 18;
+  if (filePath.endsWith('.cpp') || filePath.endsWith('.c')) score += 15;
   
-  return score;
+  // Config files moderate priority
+  if (filePath.endsWith('.json') || filePath.endsWith('.yaml') || filePath.endsWith('.toml')) score += 5;
+  
+  // README gets LOWER priority for implementation questions (de-boost)
+  if (filePath.includes('readme')) score -= 5;
+  if (metadata.cellType === 'markdown' && filePath.endsWith('.ipynb')) score -= 3;
+  
+  // Boost based on code patterns
+  if (metadata.hasFunctions) score += 5;
+  if (metadata.hasClasses) score += 8;
+  if (metadata.hasImports) score += 3;
+  if (metadata.hasExports) score += 3;
+  
+  // Boost important file names
+  if (filePath.includes('main.') || filePath.includes('app.') || filePath.includes('index.')) score += 10;
+  if (filePath.includes('/src/') || filePath.startsWith('src/')) score += 5;
+  
+  return Math.max(0, score);
 }
 
 serve(async (req) => {
@@ -143,7 +162,7 @@ serve(async (req) => {
       );
     }
 
-    // Get ALL chunks for this repo (we'll score and filter them)
+    // Get ALL chunks for this repo
     const { data: allChunks, error: chunksError } = await supabase
       .from('code_chunks')
       .select('id, file_path, content, chunk_index, metadata')
@@ -172,76 +191,84 @@ serve(async (req) => {
       score: scoreChunk(chunk, keywords)
     }));
 
-    // Sort by score and take top chunks
-    const relevantChunks = scoredChunks
-      .filter(c => c.score > 0)
-      .sort((a, b) => b.score - a.score)
-      .slice(0, 15);
+    // Sort by score descending
+    scoredChunks.sort((a, b) => b.score - a.score);
 
-    // If no relevant chunks found by keywords, get a diverse sample
-    let finalChunks = relevantChunks;
-    if (finalChunks.length < 5) {
-      // Get unique files for diversity
-      const fileGroups = new Map<string, any[]>();
-      allChunks.forEach(chunk => {
-        const existing = fileGroups.get(chunk.file_path) || [];
-        existing.push(chunk);
-        fileGroups.set(chunk.file_path, existing);
-      });
+    // Take top chunks, prioritizing diversity of files
+    const seenFiles = new Set<string>();
+    const selectedChunks: typeof scoredChunks = [];
+    
+    // First pass: get top-scoring chunks with file diversity
+    for (const chunk of scoredChunks) {
+      if (selectedChunks.length >= 20) break;
       
-      // Take first chunk from each file (up to 10 files)
-      const diverseChunks = Array.from(fileGroups.values())
-        .slice(0, 10)
-        .map(chunks => chunks[0]);
-      
-      // Combine with any keyword matches
-      const existing = new Set(finalChunks.map(c => c.id));
-      for (const chunk of diverseChunks) {
-        if (!existing.has(chunk.id)) {
-          finalChunks.push({ ...chunk, score: 0 });
-          if (finalChunks.length >= 15) break;
+      const fileCount = [...seenFiles].filter(f => f === chunk.file_path).length;
+      // Allow up to 5 chunks per file
+      if (fileCount < 5) {
+        selectedChunks.push(chunk);
+        seenFiles.add(chunk.file_path);
+      }
+    }
+    
+    // If we still have room, add more top-scoring chunks regardless of file
+    if (selectedChunks.length < 15) {
+      for (const chunk of scoredChunks) {
+        if (selectedChunks.length >= 20) break;
+        if (!selectedChunks.includes(chunk)) {
+          selectedChunks.push(chunk);
         }
       }
     }
 
-    console.log(`Selected ${finalChunks.length} chunks for context`);
+    console.log(`Selected ${selectedChunks.length} chunks for context`);
 
     // Build context with file grouping
-    const fileChunks = new Map<string, string[]>();
-    for (const chunk of finalChunks) {
+    const fileChunks = new Map<string, Array<{content: string; score: number; metadata: any}>>();
+    for (const chunk of selectedChunks) {
       const existing = fileChunks.get(chunk.file_path) || [];
-      existing.push(chunk.content);
+      existing.push({ content: chunk.content, score: chunk.score, metadata: chunk.metadata });
       fileChunks.set(chunk.file_path, existing);
     }
 
+    // Sort files by total score (code files should rank higher)
+    const sortedFiles = [...fileChunks.entries()].sort((a, b) => {
+      const aScore = a[1].reduce((sum, c) => sum + c.score, 0);
+      const bScore = b[1].reduce((sum, c) => sum + c.score, 0);
+      return bScore - aScore;
+    });
+
     let codeContext = '';
-    for (const [filePath, contents] of fileChunks) {
-      codeContext += `\n### File: ${filePath}\n`;
-      codeContext += contents.join('\n\n');
+    for (const [filePath, contents] of sortedFiles) {
+      const fileType = contents[0]?.metadata?.cellType === 'code' ? '(code)' : 
+                       contents[0]?.metadata?.cellType === 'markdown' ? '(markdown)' : '';
+      codeContext += `\n### File: ${filePath} ${fileType}\n`;
+      codeContext += contents.map(c => c.content).join('\n\n');
       codeContext += '\n\n---\n';
     }
 
     // Get unique files referenced
-    const filesReferenced = [...new Set(finalChunks.map(c => c.file_path))];
+    const filesReferenced = sortedFiles.map(([path]) => path);
+    const uniqueFiles = [...new Set(allChunks.map(c => c.file_path))];
 
     // Build conversation messages
     const systemPrompt = `You are an expert code assistant analyzing the GitHub repository: ${repo.repo_name}.
 
-You have access to ${allChunks.length} indexed code chunks from this repository. Below are the most relevant code sections based on the user's question.
+You have access to ${allChunks.length} indexed code chunks from ${uniqueFiles.length} files in this repository. Below are the most relevant code sections based on the user's question.
 
 IMPORTANT GUIDELINES:
 1. Base your answers ONLY on the code provided below. Do not make assumptions about code you haven't seen.
 2. When referencing code, always mention the specific file path.
-3. If the relevant code isn't in the provided context, say "I don't see the implementation for that in the indexed code. You might want to look in other files."
-4. Be specific about function names, class names, and line numbers when possible.
-5. Explain the code clearly, focusing on how it works and why.
+3. For implementation questions, focus on the ACTUAL CODE, not just documentation.
+4. If the relevant code isn't in the provided context, say "I don't see the implementation for that in the indexed code."
+5. Be specific about function names, class names, and line numbers when possible.
+6. Explain the code clearly, focusing on how it works and why.
 
 Repository: ${repo.repo_name}
-Total indexed files: ${new Set(allChunks.map((c: any) => c.file_path)).size}
+Total indexed files: ${uniqueFiles.length}
 Total chunks: ${allChunks.length}
 Files in current context: ${filesReferenced.length}
 
-RELEVANT CODE SECTIONS:
+RELEVANT CODE SECTIONS (sorted by relevance):
 ${codeContext}`;
 
     const messages = [
@@ -291,8 +318,9 @@ ${codeContext}`;
       JSON.stringify({ 
         response,
         filesReferenced,
-        chunksUsed: finalChunks.length,
+        chunksUsed: selectedChunks.length,
         totalChunks: allChunks.length,
+        totalFiles: uniqueFiles.length,
         keywordsMatched: keywords.slice(0, 10)
       }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }

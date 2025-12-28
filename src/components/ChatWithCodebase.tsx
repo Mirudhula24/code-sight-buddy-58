@@ -1,17 +1,19 @@
 import { useState, useEffect, useRef } from "react";
-import { MessageSquare, Send, RefreshCw, FileCode, Loader2, Code, ExternalLink } from "lucide-react";
+import { MessageSquare, Send, RefreshCw, FileCode, Loader2, Code, FolderOpen, ChevronDown, ChevronUp } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import { Badge } from "@/components/ui/badge";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 
 interface Message {
   role: "user" | "assistant";
   content: string;
   filesReferenced?: string[];
   chunksUsed?: number;
+  totalFiles?: number;
 }
 
 interface IndexingStatus {
@@ -20,6 +22,14 @@ interface IndexingStatus {
   filesProcessed?: number;
   totalFiles?: number;
   chunksCount?: number;
+  currentFile?: string;
+  failedFilesCount?: number;
+}
+
+interface IndexedFile {
+  file_path: string;
+  chunk_count: number;
+  language?: string;
 }
 
 interface ChatWithCodebaseProps {
@@ -28,12 +38,12 @@ interface ChatWithCodebaseProps {
 }
 
 const SUGGESTED_QUESTIONS = [
-  "How does authentication work?",
-  "Explain the main components",
-  "What's the data flow architecture?",
-  "Show me the API endpoints",
+  "How does the main algorithm work?",
+  "Explain the code structure",
+  "What are the key functions?",
+  "Show me the implementation details",
   "What dependencies are used?",
-  "How is state management handled?",
+  "How is the data processed?",
 ];
 
 const ChatWithCodebase = ({ 
@@ -46,6 +56,8 @@ const ChatWithCodebase = ({
   const [isLoading, setIsLoading] = useState(false);
   const [indexingStatus, setIndexingStatus] = useState<IndexingStatus | null>(null);
   const [isCheckingStatus, setIsCheckingStatus] = useState(true);
+  const [showIndexedFiles, setShowIndexedFiles] = useState(false);
+  const [indexedFiles, setIndexedFiles] = useState<IndexedFile[]>([]);
   const scrollRef = useRef<HTMLDivElement>(null);
   const pollingRef = useRef<NodeJS.Timeout | null>(null);
 
@@ -74,17 +86,28 @@ const ChatWithCodebase = ({
         .single();
 
       if (repo) {
-        const metadata = repo.metadata as { progress?: number; filesProcessed?: number; totalFiles?: number } | null;
+        const metadata = repo.metadata as { 
+          progress?: number; 
+          filesProcessed?: number; 
+          totalFiles?: number;
+          currentFile?: string;
+          failedFilesCount?: number;
+        } | null;
+        
         setIndexingStatus({
           status: repo.ingestion_status as IndexingStatus["status"],
           progress: metadata?.progress,
           filesProcessed: metadata?.filesProcessed,
           totalFiles: metadata?.totalFiles,
           chunksCount: repo.chunks_count || 0,
+          currentFile: metadata?.currentFile || undefined,
+          failedFilesCount: metadata?.failedFilesCount,
         });
 
         if (repo.ingestion_status === "indexing") {
           startPolling();
+        } else if (repo.ingestion_status === "completed") {
+          fetchIndexedFiles(repo.id);
         }
       } else {
         setIndexingStatus({ status: "pending" });
@@ -95,6 +118,39 @@ const ChatWithCodebase = ({
       setIndexingStatus({ status: "pending" });
     } finally {
       setIsCheckingStatus(false);
+    }
+  };
+
+  const fetchIndexedFiles = async (repoId: string) => {
+    try {
+      const { data } = await supabase
+        .from("code_chunks")
+        .select("file_path, metadata")
+        .eq("repo_id", repoId);
+
+      if (data) {
+        const fileMap = new Map<string, { count: number; language?: string }>();
+        data.forEach(chunk => {
+          const existing = fileMap.get(chunk.file_path) || { count: 0 };
+          existing.count++;
+          if (chunk.metadata && typeof chunk.metadata === 'object' && 'language' in chunk.metadata) {
+            existing.language = String(chunk.metadata.language);
+          }
+          fileMap.set(chunk.file_path, existing);
+        });
+
+        const files: IndexedFile[] = Array.from(fileMap.entries())
+          .map(([path, info]) => ({
+            file_path: path,
+            chunk_count: info.count,
+            language: info.language,
+          }))
+          .sort((a, b) => b.chunk_count - a.chunk_count);
+
+        setIndexedFiles(files);
+      }
+    } catch (err) {
+      console.error("Error fetching indexed files:", err);
     }
   };
 
@@ -111,13 +167,22 @@ const ChatWithCodebase = ({
         .single();
 
       if (repo) {
-        const metadata = repo.metadata as { progress?: number; filesProcessed?: number; totalFiles?: number } | null;
+        const metadata = repo.metadata as { 
+          progress?: number; 
+          filesProcessed?: number; 
+          totalFiles?: number;
+          currentFile?: string;
+          failedFilesCount?: number;
+        } | null;
+        
         setIndexingStatus({
           status: repo.ingestion_status as IndexingStatus["status"],
           progress: metadata?.progress,
           filesProcessed: metadata?.filesProcessed,
           totalFiles: metadata?.totalFiles,
           chunksCount: repo.chunks_count || 0,
+          currentFile: metadata?.currentFile || undefined,
+          failedFilesCount: metadata?.failedFilesCount,
         });
 
         if (repo.ingestion_status === "completed" || repo.ingestion_status === "failed") {
@@ -125,9 +190,12 @@ const ChatWithCodebase = ({
             clearInterval(pollingRef.current);
             pollingRef.current = null;
           }
+          if (repo.ingestion_status === "completed") {
+            fetchIndexedFiles(repo.id);
+          }
         }
       }
-    }, 2000);
+    }, 1500);
   };
 
   const triggerIndexing = async () => {
@@ -136,7 +204,7 @@ const ChatWithCodebase = ({
     
     try {
       const { data, error } = await supabase.functions.invoke("index-repo", {
-        body: { repositoryUrl },
+        body: { repositoryUrl, forceReindex: true },
       });
 
       if (error) {
@@ -148,11 +216,21 @@ const ChatWithCodebase = ({
           status: "completed",
           chunksCount: data.chunksCount,
           filesProcessed: data.filesProcessed,
+          totalFiles: data.totalFiles,
         });
         toast({
           title: "Indexing Complete",
-          description: `Indexed ${data.chunksCount} code chunks from ${data.filesProcessed} files.`,
+          description: `Indexed ${data.chunksCount} chunks from ${data.filesProcessed} files.`,
         });
+        // Fetch the repo ID and then indexed files
+        const { data: repo } = await supabase
+          .from("repositories")
+          .select("id")
+          .eq("repo_url", repositoryUrl)
+          .single();
+        if (repo) {
+          fetchIndexedFiles(repo.id);
+        }
       }
     } catch (err) {
       console.error("Indexing error:", err);
@@ -203,6 +281,7 @@ const ChatWithCodebase = ({
         content: data.response,
         filesReferenced: data.filesReferenced,
         chunksUsed: data.chunksUsed,
+        totalFiles: data.totalFiles,
       };
       setMessages(prev => [...prev, assistantMessage]);
     } catch (err) {
@@ -263,6 +342,12 @@ const ChatWithCodebase = ({
               : "Starting indexing..."}
           </p>
           
+          {indexingStatus.currentFile && (
+            <p className="text-xs text-muted-foreground font-mono truncate max-w-xs">
+              Processing: {indexingStatus.currentFile}
+            </p>
+          )}
+          
           {indexingStatus.chunksCount !== undefined && indexingStatus.chunksCount > 0 && (
             <p className="text-xs text-primary font-medium">
               {indexingStatus.chunksCount} code chunks created
@@ -296,23 +381,57 @@ const ChatWithCodebase = ({
   return (
     <div className="flex flex-col h-[500px]">
       {/* Header */}
-      <div className="flex items-center justify-between pb-4 border-b border-border">
-        <div className="flex items-center gap-2 flex-wrap">
-          <MessageSquare className="w-5 h-5 text-primary" />
-          <span className="font-medium text-foreground">Chat with Codebase</span>
-          <Badge variant="secondary" className="text-xs">
-            {indexingStatus?.chunksCount || 0} chunks
-          </Badge>
+      <div className="flex flex-col gap-2 pb-4 border-b border-border">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2 flex-wrap">
+            <MessageSquare className="w-5 h-5 text-primary" />
+            <span className="font-medium text-foreground">Chat with Codebase</span>
+            <Badge variant="secondary" className="text-xs">
+              {indexedFiles.length} files · {indexingStatus?.chunksCount || 0} chunks
+            </Badge>
+          </div>
+          <Button 
+            variant="ghost" 
+            size="sm" 
+            onClick={triggerIndexing}
+            className="gap-2 text-xs"
+          >
+            <RefreshCw className="w-3 h-3" />
+            Re-index
+          </Button>
         </div>
-        <Button 
-          variant="ghost" 
-          size="sm" 
-          onClick={triggerIndexing}
-          className="gap-2 text-xs"
-        >
-          <RefreshCw className="w-3 h-3" />
-          Re-index
-        </Button>
+        
+        {/* Indexed Files Collapsible */}
+        {indexedFiles.length > 0 && (
+          <Collapsible open={showIndexedFiles} onOpenChange={setShowIndexedFiles}>
+            <CollapsibleTrigger asChild>
+              <Button variant="ghost" size="sm" className="gap-2 text-xs w-full justify-start px-0 h-auto py-1">
+                <FolderOpen className="w-3 h-3" />
+                <span>View indexed files</span>
+                {showIndexedFiles ? <ChevronUp className="w-3 h-3 ml-auto" /> : <ChevronDown className="w-3 h-3 ml-auto" />}
+              </Button>
+            </CollapsibleTrigger>
+            <CollapsibleContent>
+              <div className="mt-2 p-2 bg-muted/50 rounded-md max-h-32 overflow-y-auto">
+                <div className="space-y-1">
+                  {indexedFiles.map((file, i) => (
+                    <div key={i} className="flex items-center justify-between text-xs">
+                      <span className="font-mono truncate flex-1 text-muted-foreground">{file.file_path}</span>
+                      <div className="flex items-center gap-2 ml-2">
+                        {file.language && (
+                          <Badge variant="outline" className="text-[10px] px-1 py-0">
+                            {file.language}
+                          </Badge>
+                        )}
+                        <span className="text-muted-foreground">{file.chunk_count} chunks</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </CollapsibleContent>
+          </Collapsible>
+        )}
       </div>
 
       {/* Messages area */}
@@ -324,7 +443,7 @@ const ChatWithCodebase = ({
               Ask questions about <span className="font-medium text-foreground">{repositoryName}</span>
             </p>
             <p className="text-xs text-muted-foreground mb-6">
-              The AI will search through {indexingStatus?.chunksCount || 0} code chunks to answer
+              AI will search through {indexingStatus?.chunksCount || 0} code chunks from {indexedFiles.length} files
             </p>
             <div className="flex flex-wrap gap-2 justify-center max-w-lg">
               {SUGGESTED_QUESTIONS.map((question, i) => (
@@ -359,7 +478,7 @@ const ChatWithCodebase = ({
                       <div className="flex items-center gap-2 mb-2">
                         <FileCode className="w-3 h-3 text-muted-foreground" />
                         <span className="text-xs text-muted-foreground">
-                          Based on {message.chunksUsed || message.filesReferenced.length} code sections from {message.filesReferenced.length} files
+                          Based on {message.chunksUsed || message.filesReferenced.length} chunks from {message.filesReferenced.length} files
                         </span>
                       </div>
                       <div className="flex flex-wrap gap-1">
