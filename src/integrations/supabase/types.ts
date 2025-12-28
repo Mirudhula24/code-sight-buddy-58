@@ -61,6 +61,7 @@ export type Database = {
           embedding: string | null
           file_path: string
           id: string
+          metadata: Json | null
           repo_id: string
         }
         Insert: {
@@ -70,6 +71,7 @@ export type Database = {
           embedding?: string | null
           file_path: string
           id?: string
+          metadata?: Json | null
           repo_id: string
         }
         Update: {
@@ -79,6 +81,7 @@ export type Database = {
           embedding?: string | null
           file_path?: string
           id?: string
+          metadata?: Json | null
           repo_id?: string
         }
         Relationships: [

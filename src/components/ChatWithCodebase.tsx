@@ -1,15 +1,17 @@
 import { useState, useEffect, useRef } from "react";
-import { MessageSquare, Send, RefreshCw, FileCode, Loader2 } from "lucide-react";
+import { MessageSquare, Send, RefreshCw, FileCode, Loader2, Code, ExternalLink } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
+import { Badge } from "@/components/ui/badge";
 
 interface Message {
   role: "user" | "assistant";
   content: string;
   filesReferenced?: string[];
+  chunksUsed?: number;
 }
 
 interface IndexingStatus {
@@ -26,10 +28,12 @@ interface ChatWithCodebaseProps {
 }
 
 const SUGGESTED_QUESTIONS = [
-  "How does authentication work in this codebase?",
-  "What is the overall architecture of this project?",
-  "Explain the main data flow",
-  "What are the key components?",
+  "How does authentication work?",
+  "Explain the main components",
+  "What's the data flow architecture?",
+  "Show me the API endpoints",
+  "What dependencies are used?",
+  "How is state management handled?",
 ];
 
 const ChatWithCodebase = ({ 
@@ -45,7 +49,6 @@ const ChatWithCodebase = ({
   const scrollRef = useRef<HTMLDivElement>(null);
   const pollingRef = useRef<NodeJS.Timeout | null>(null);
 
-  // Check indexing status on mount
   useEffect(() => {
     checkIndexingStatus();
     return () => {
@@ -55,7 +58,6 @@ const ChatWithCodebase = ({
     };
   }, [repositoryUrl]);
 
-  // Auto-scroll to bottom when new messages arrive
   useEffect(() => {
     if (scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
@@ -81,12 +83,10 @@ const ChatWithCodebase = ({
           chunksCount: repo.chunks_count || 0,
         });
 
-        // If indexing, start polling
         if (repo.ingestion_status === "indexing") {
           startPolling();
         }
       } else {
-        // No repository found, trigger indexing
         setIndexingStatus({ status: "pending" });
         triggerIndexing();
       }
@@ -132,6 +132,7 @@ const ChatWithCodebase = ({
 
   const triggerIndexing = async () => {
     setIndexingStatus({ status: "indexing", progress: 0 });
+    startPolling();
     
     try {
       const { data, error } = await supabase.functions.invoke("index-repo", {
@@ -201,6 +202,7 @@ const ChatWithCodebase = ({
         role: "assistant",
         content: data.response,
         filesReferenced: data.filesReferenced,
+        chunksUsed: data.chunksUsed,
       };
       setMessages(prev => [...prev, assistantMessage]);
     } catch (err) {
@@ -210,7 +212,6 @@ const ChatWithCodebase = ({
         description: errorMessage,
         variant: "destructive",
       });
-      // Remove the user message if there was an error
       setMessages(prev => prev.slice(0, -1));
     } finally {
       setIsLoading(false);
@@ -224,7 +225,6 @@ const ChatWithCodebase = ({
     }
   };
 
-  // Loading state
   if (isCheckingStatus) {
     return (
       <div className="flex flex-col h-[500px] items-center justify-center">
@@ -234,21 +234,19 @@ const ChatWithCodebase = ({
     );
   }
 
-  // Indexing in progress
   if (indexingStatus?.status === "indexing" || indexingStatus?.status === "pending") {
     return (
       <div className="flex flex-col h-[500px] items-center justify-center text-center px-4">
         <div className="w-20 h-20 rounded-full bg-primary/10 flex items-center justify-center mb-6">
-          <FileCode className="w-10 h-10 text-primary animate-pulse" />
+          <Code className="w-10 h-10 text-primary animate-pulse" />
         </div>
         <h4 className="text-xl font-semibold text-foreground mb-3">
           Indexing Repository
         </h4>
         <p className="text-sm text-muted-foreground max-w-md mb-6">
-          Analyzing code files from <span className="font-medium text-foreground">{repositoryName}</span>
+          Analyzing all source files from <span className="font-medium text-foreground">{repositoryName}</span>
         </p>
         
-        {/* Progress bar */}
         <div className="w-full max-w-xs mb-4">
           <div className="h-2 bg-muted rounded-full overflow-hidden">
             <div 
@@ -258,22 +256,23 @@ const ChatWithCodebase = ({
           </div>
         </div>
         
-        <p className="text-xs text-muted-foreground">
-          {indexingStatus.filesProcessed !== undefined && indexingStatus.totalFiles !== undefined
-            ? `${indexingStatus.filesProcessed} / ${indexingStatus.totalFiles} files processed`
-            : "Starting indexing..."}
-        </p>
-        
-        {indexingStatus.chunksCount !== undefined && indexingStatus.chunksCount > 0 && (
-          <p className="text-xs text-primary mt-2">
-            {indexingStatus.chunksCount} chunks indexed
+        <div className="space-y-1">
+          <p className="text-xs text-muted-foreground">
+            {indexingStatus.filesProcessed !== undefined && indexingStatus.totalFiles !== undefined
+              ? `${indexingStatus.filesProcessed} / ${indexingStatus.totalFiles} files processed`
+              : "Starting indexing..."}
           </p>
-        )}
+          
+          {indexingStatus.chunksCount !== undefined && indexingStatus.chunksCount > 0 && (
+            <p className="text-xs text-primary font-medium">
+              {indexingStatus.chunksCount} code chunks created
+            </p>
+          )}
+        </div>
       </div>
     );
   }
 
-  // Indexing failed
   if (indexingStatus?.status === "failed") {
     return (
       <div className="flex flex-col h-[500px] items-center justify-center text-center px-4">
@@ -294,17 +293,16 @@ const ChatWithCodebase = ({
     );
   }
 
-  // Chat interface (indexing completed)
   return (
     <div className="flex flex-col h-[500px]">
       {/* Header */}
       <div className="flex items-center justify-between pb-4 border-b border-border">
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
           <MessageSquare className="w-5 h-5 text-primary" />
           <span className="font-medium text-foreground">Chat with Codebase</span>
-          <span className="px-2 py-0.5 text-xs rounded-full bg-green-500/20 text-green-400">
-            {indexingStatus?.chunksCount || 0} chunks indexed
-          </span>
+          <Badge variant="secondary" className="text-xs">
+            {indexingStatus?.chunksCount || 0} chunks
+          </Badge>
         </div>
         <Button 
           variant="ghost" 
@@ -321,9 +319,12 @@ const ChatWithCodebase = ({
       <ScrollArea className="flex-1 py-4" ref={scrollRef}>
         {messages.length === 0 ? (
           <div className="h-full flex flex-col items-center justify-center text-center px-4">
-            <MessageSquare className="w-12 h-12 text-muted-foreground/50 mb-4" />
-            <p className="text-sm text-muted-foreground mb-6">
+            <Code className="w-12 h-12 text-muted-foreground/50 mb-4" />
+            <p className="text-sm text-muted-foreground mb-2">
               Ask questions about <span className="font-medium text-foreground">{repositoryName}</span>
+            </p>
+            <p className="text-xs text-muted-foreground mb-6">
+              The AI will search through {indexingStatus?.chunksCount || 0} code chunks to answer
             </p>
             <div className="flex flex-wrap gap-2 justify-center max-w-lg">
               {SUGGESTED_QUESTIONS.map((question, i) => (
@@ -345,26 +346,32 @@ const ChatWithCodebase = ({
                 className={`flex ${message.role === "user" ? "justify-end" : "justify-start"}`}
               >
                 <div
-                  className={`max-w-[80%] rounded-lg px-4 py-2 ${
+                  className={`max-w-[85%] rounded-lg px-4 py-3 ${
                     message.role === "user"
                       ? "bg-primary text-primary-foreground"
                       : "bg-muted text-foreground"
                   }`}
                 >
-                  <p className="text-sm whitespace-pre-wrap">{message.content}</p>
+                  <div className="text-sm whitespace-pre-wrap leading-relaxed">{message.content}</div>
+                  
                   {message.filesReferenced && message.filesReferenced.length > 0 && (
-                    <div className="mt-2 pt-2 border-t border-border/50">
-                      <p className="text-xs text-muted-foreground mb-1">Files referenced:</p>
+                    <div className="mt-3 pt-3 border-t border-border/30">
+                      <div className="flex items-center gap-2 mb-2">
+                        <FileCode className="w-3 h-3 text-muted-foreground" />
+                        <span className="text-xs text-muted-foreground">
+                          Based on {message.chunksUsed || message.filesReferenced.length} code sections from {message.filesReferenced.length} files
+                        </span>
+                      </div>
                       <div className="flex flex-wrap gap-1">
-                        {message.filesReferenced.slice(0, 5).map((file, j) => (
-                          <span key={j} className="text-xs px-2 py-0.5 bg-background/50 rounded">
+                        {message.filesReferenced.slice(0, 6).map((file, j) => (
+                          <Badge key={j} variant="outline" className="text-xs font-mono">
                             {file.split('/').pop()}
-                          </span>
+                          </Badge>
                         ))}
-                        {message.filesReferenced.length > 5 && (
-                          <span className="text-xs text-muted-foreground">
-                            +{message.filesReferenced.length - 5} more
-                          </span>
+                        {message.filesReferenced.length > 6 && (
+                          <Badge variant="outline" className="text-xs">
+                            +{message.filesReferenced.length - 6} more
+                          </Badge>
                         )}
                       </div>
                     </div>
@@ -374,10 +381,10 @@ const ChatWithCodebase = ({
             ))}
             {isLoading && (
               <div className="flex justify-start">
-                <div className="bg-muted rounded-lg px-4 py-2">
+                <div className="bg-muted rounded-lg px-4 py-3">
                   <div className="flex items-center gap-2">
                     <Loader2 className="w-4 h-4 animate-spin" />
-                    <span className="text-sm text-muted-foreground">Thinking...</span>
+                    <span className="text-sm text-muted-foreground">Searching codebase...</span>
                   </div>
                 </div>
               </div>

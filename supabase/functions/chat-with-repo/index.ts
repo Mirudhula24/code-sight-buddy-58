@@ -7,7 +7,6 @@ const corsHeaders = {
 };
 
 function extractKeywords(message: string): string[] {
-  // Remove common words and extract meaningful terms
   const stopWords = new Set([
     'the', 'a', 'an', 'is', 'are', 'was', 'were', 'be', 'been', 'being',
     'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would', 'could', 'should',
@@ -19,7 +18,8 @@ function extractKeywords(message: string): string[] {
     'what', 'how', 'where', 'when', 'why', 'which', 'who', 'whom', 'this',
     'that', 'these', 'those', 'i', 'me', 'my', 'myself', 'we', 'our', 'you',
     'your', 'he', 'she', 'it', 'they', 'them', 'his', 'her', 'its', 'their',
-    'explain', 'tell', 'show', 'find', 'work', 'works', 'working', 'use', 'using'
+    'explain', 'tell', 'show', 'find', 'work', 'works', 'working', 'use', 'using',
+    'code', 'codebase', 'repository', 'project', 'file', 'files'
   ]);
   
   const words = message.toLowerCase()
@@ -27,11 +27,55 @@ function extractKeywords(message: string): string[] {
     .split(/\s+/)
     .filter(word => word.length > 2 && !stopWords.has(word));
   
-  // Also look for common code patterns
+  // Extract code patterns
   const codePatterns = message.match(/[A-Z][a-z]+[A-Z][a-zA-Z]*/g) || []; // CamelCase
   const snakeCase = message.match(/[a-z]+_[a-z_]+/g) || []; // snake_case
+  const dotPatterns = message.match(/\w+\.\w+/g) || []; // file.ext or obj.method
   
-  return [...new Set([...words, ...codePatterns.map(p => p.toLowerCase()), ...snakeCase])];
+  return [...new Set([
+    ...words, 
+    ...codePatterns.map(p => p.toLowerCase()), 
+    ...snakeCase,
+    ...dotPatterns.map(p => p.toLowerCase())
+  ])];
+}
+
+// Score chunks based on keyword relevance
+function scoreChunk(chunk: any, keywords: string[]): number {
+  let score = 0;
+  const content = chunk.content.toLowerCase();
+  const filePath = chunk.file_path.toLowerCase();
+  
+  for (const keyword of keywords) {
+    // Exact matches in content
+    const contentMatches = (content.match(new RegExp(keyword, 'g')) || []).length;
+    score += contentMatches * 2;
+    
+    // Matches in file path are more valuable
+    if (filePath.includes(keyword)) {
+      score += 10;
+    }
+    
+    // Partial matches
+    if (content.includes(keyword)) {
+      score += 1;
+    }
+  }
+  
+  // Boost important file types
+  if (filePath.includes('readme')) score += 5;
+  if (filePath.endsWith('.ts') || filePath.endsWith('.tsx')) score += 2;
+  if (filePath.includes('index.')) score += 3;
+  if (filePath.includes('main.')) score += 3;
+  if (filePath.includes('app.')) score += 3;
+  
+  // Boost based on metadata
+  const metadata = chunk.metadata || {};
+  if (metadata.hasExports) score += 1;
+  if (metadata.hasFunctions) score += 1;
+  if (metadata.hasClasses) score += 2;
+  
+  return score;
 }
 
 serve(async (req) => {
@@ -54,7 +98,6 @@ serve(async (req) => {
       throw new Error('LOVABLE_API_KEY is not configured');
     }
 
-    // Initialize Supabase client
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
     const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
     const supabase = createClient(supabaseUrl, supabaseKey);
@@ -78,11 +121,12 @@ serve(async (req) => {
     }
 
     if (repo.ingestion_status === 'indexing') {
+      const metadata = repo.metadata as any || {};
       return new Response(
         JSON.stringify({ 
           error: 'Repository is currently being indexed. Please wait.',
           code: 'INDEXING_IN_PROGRESS',
-          progress: repo.metadata?.progress || 0
+          progress: metadata.progress || 0
         }),
         { status: 202, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
@@ -99,13 +143,13 @@ serve(async (req) => {
       );
     }
 
-    // Check if chunks exist
-    const { count } = await supabase
+    // Get ALL chunks for this repo (we'll score and filter them)
+    const { data: allChunks, error: chunksError } = await supabase
       .from('code_chunks')
-      .select('*', { count: 'exact', head: true })
+      .select('id, file_path, content, chunk_index, metadata')
       .eq('repo_id', repo.id);
 
-    if (!count || count === 0) {
+    if (chunksError || !allChunks || allChunks.length === 0) {
       return new Response(
         JSON.stringify({ 
           error: 'No code chunks available. Please re-index the repository.',
@@ -116,66 +160,93 @@ serve(async (req) => {
       );
     }
 
-    // Extract keywords for search
+    console.log(`Found ${allChunks.length} total chunks for repo`);
+
+    // Extract keywords and score chunks
     const keywords = extractKeywords(message);
     console.log('Searching with keywords:', keywords);
 
-    // Search for relevant chunks using keyword matching
-    let relevantChunks: any[] = [];
-    
-    if (keywords.length > 0) {
-      // Build a search query for each keyword
-      const searchConditions = keywords.map(keyword => 
-        `content.ilike.%${keyword}%`
-      ).join(',');
+    // Score all chunks
+    const scoredChunks = allChunks.map(chunk => ({
+      ...chunk,
+      score: scoreChunk(chunk, keywords)
+    }));
+
+    // Sort by score and take top chunks
+    const relevantChunks = scoredChunks
+      .filter(c => c.score > 0)
+      .sort((a, b) => b.score - a.score)
+      .slice(0, 15);
+
+    // If no relevant chunks found by keywords, get a diverse sample
+    let finalChunks = relevantChunks;
+    if (finalChunks.length < 5) {
+      // Get unique files for diversity
+      const fileGroups = new Map<string, any[]>();
+      allChunks.forEach(chunk => {
+        const existing = fileGroups.get(chunk.file_path) || [];
+        existing.push(chunk);
+        fileGroups.set(chunk.file_path, existing);
+      });
       
-      const { data: chunks, error: searchError } = await supabase
-        .from('code_chunks')
-        .select('file_path, content')
-        .eq('repo_id', repo.id)
-        .or(searchConditions)
-        .limit(15);
+      // Take first chunk from each file (up to 10 files)
+      const diverseChunks = Array.from(fileGroups.values())
+        .slice(0, 10)
+        .map(chunks => chunks[0]);
       
-      if (!searchError && chunks) {
-        relevantChunks = chunks;
+      // Combine with any keyword matches
+      const existing = new Set(finalChunks.map(c => c.id));
+      for (const chunk of diverseChunks) {
+        if (!existing.has(chunk.id)) {
+          finalChunks.push({ ...chunk, score: 0 });
+          if (finalChunks.length >= 15) break;
+        }
       }
     }
-    
-    // If no keyword matches, get a sample of chunks
-    if (relevantChunks.length === 0) {
-      const { data: sampleChunks } = await supabase
-        .from('code_chunks')
-        .select('file_path, content')
-        .eq('repo_id', repo.id)
-        .limit(10);
-      
-      relevantChunks = sampleChunks || [];
+
+    console.log(`Selected ${finalChunks.length} chunks for context`);
+
+    // Build context with file grouping
+    const fileChunks = new Map<string, string[]>();
+    for (const chunk of finalChunks) {
+      const existing = fileChunks.get(chunk.file_path) || [];
+      existing.push(chunk.content);
+      fileChunks.set(chunk.file_path, existing);
     }
 
-    console.log(`Found ${relevantChunks.length} relevant chunks`);
+    let codeContext = '';
+    for (const [filePath, contents] of fileChunks) {
+      codeContext += `\n### File: ${filePath}\n`;
+      codeContext += contents.join('\n\n');
+      codeContext += '\n\n---\n';
+    }
 
-    // Build context from chunks
-    const codeContext = relevantChunks
-      .map(chunk => chunk.content)
-      .join('\n\n---\n\n');
+    // Get unique files referenced
+    const filesReferenced = [...new Set(finalChunks.map(c => c.file_path))];
 
     // Build conversation messages
-    const messages = [
-      {
-        role: 'system',
-        content: `You are an expert code assistant helping users understand a GitHub repository: ${repo.repo_name}.
+    const systemPrompt = `You are an expert code assistant analyzing the GitHub repository: ${repo.repo_name}.
 
-You have access to relevant code snippets from the repository. Use this context to answer questions accurately.
-When referencing code, mention the file path. Be concise but thorough.
-If you're not sure about something, say so rather than guessing.
+You have access to ${allChunks.length} indexed code chunks from this repository. Below are the most relevant code sections based on the user's question.
+
+IMPORTANT GUIDELINES:
+1. Base your answers ONLY on the code provided below. Do not make assumptions about code you haven't seen.
+2. When referencing code, always mention the specific file path.
+3. If the relevant code isn't in the provided context, say "I don't see the implementation for that in the indexed code. You might want to look in other files."
+4. Be specific about function names, class names, and line numbers when possible.
+5. Explain the code clearly, focusing on how it works and why.
 
 Repository: ${repo.repo_name}
-Total indexed chunks: ${count}
+Total indexed files: ${new Set(allChunks.map((c: any) => c.file_path)).size}
+Total chunks: ${allChunks.length}
+Files in current context: ${filesReferenced.length}
 
-Relevant code context:
-${codeContext || 'No specific code context available for this query.'}`
-      },
-      ...conversationHistory.slice(-6), // Keep last 6 messages for context
+RELEVANT CODE SECTIONS:
+${codeContext}`;
+
+    const messages = [
+      { role: 'system', content: systemPrompt },
+      ...conversationHistory.slice(-6),
       { role: 'user', content: message }
     ];
 
@@ -216,14 +287,13 @@ ${codeContext || 'No specific code context available for this query.'}`
     const aiData = await aiResponse.json();
     const response = aiData.choices?.[0]?.message?.content || 'I could not generate a response.';
 
-    // Return files referenced for transparency
-    const filesReferenced = [...new Set(relevantChunks.map(c => c.file_path))];
-
     return new Response(
       JSON.stringify({ 
         response,
         filesReferenced,
-        chunksUsed: relevantChunks.length
+        chunksUsed: finalChunks.length,
+        totalChunks: allChunks.length,
+        keywordsMatched: keywords.slice(0, 10)
       }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );

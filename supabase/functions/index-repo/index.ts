@@ -10,69 +10,204 @@ const corsHeaders = {
 const CODE_EXTENSIONS = [
   '.ts', '.tsx', '.js', '.jsx', '.py', '.java', '.go', '.rs', '.rb', '.php',
   '.c', '.cpp', '.h', '.hpp', '.cs', '.swift', '.kt', '.scala', '.vue', '.svelte',
-  '.json', '.yaml', '.yml', '.md', '.css', '.scss', '.html'
+  '.json', '.yaml', '.yml', '.md', '.css', '.scss', '.html', '.sql', '.sh',
+  '.dockerfile', '.env.example', '.toml', '.xml', '.gradle'
 ];
 
 // Directories to skip
 const SKIP_DIRS = [
   'node_modules', '.git', 'dist', 'build', '.next', '__pycache__', 
-  'vendor', 'target', '.idea', '.vscode', 'coverage', '.nyc_output'
+  'vendor', 'target', '.idea', '.vscode', 'coverage', '.nyc_output',
+  '.cache', '.temp', 'tmp', 'logs', 'test-results', '.husky'
 ];
 
 // Files to skip
 const SKIP_FILES = [
   'package-lock.json', 'yarn.lock', 'pnpm-lock.yaml', 'bun.lockb',
-  '.DS_Store', 'thumbs.db'
+  '.DS_Store', 'thumbs.db', '.gitignore', '.npmrc', '.nvmrc'
 ];
 
 function shouldProcessFile(path: string): boolean {
-  // Skip directories
   for (const dir of SKIP_DIRS) {
     if (path.includes(`/${dir}/`) || path.startsWith(`${dir}/`)) {
       return false;
     }
   }
   
-  // Skip specific files
   const fileName = path.split('/').pop() || '';
   if (SKIP_FILES.includes(fileName)) {
     return false;
   }
   
-  // Check extension
-  return CODE_EXTENSIONS.some(ext => path.endsWith(ext));
+  return CODE_EXTENSIONS.some(ext => path.toLowerCase().endsWith(ext));
 }
 
-function chunkContent(content: string, filePath: string, maxChunkSize = 800): Array<{ content: string; index: number }> {
-  const chunks: Array<{ content: string; index: number }> = [];
+function detectLanguage(filePath: string): string {
+  const ext = filePath.split('.').pop()?.toLowerCase() || '';
+  const langMap: Record<string, string> = {
+    'ts': 'typescript', 'tsx': 'typescript', 'js': 'javascript', 'jsx': 'javascript',
+    'py': 'python', 'java': 'java', 'go': 'go', 'rs': 'rust', 'rb': 'ruby',
+    'php': 'php', 'c': 'c', 'cpp': 'cpp', 'h': 'c', 'hpp': 'cpp',
+    'cs': 'csharp', 'swift': 'swift', 'kt': 'kotlin', 'scala': 'scala',
+    'vue': 'vue', 'svelte': 'svelte', 'json': 'json', 'yaml': 'yaml',
+    'yml': 'yaml', 'md': 'markdown', 'css': 'css', 'scss': 'scss',
+    'html': 'html', 'sql': 'sql', 'sh': 'shell', 'toml': 'toml'
+  };
+  return langMap[ext] || 'text';
+}
+
+interface Chunk {
+  content: string;
+  index: number;
+  startLine: number;
+  endLine: number;
+  metadata: {
+    language: string;
+    fileType: string;
+    hasImports: boolean;
+    hasExports: boolean;
+    hasFunctions: boolean;
+    hasClasses: boolean;
+  };
+}
+
+function chunkContent(content: string, filePath: string, maxChunkSize = 1000, overlap = 200): Chunk[] {
+  const chunks: Chunk[] = [];
+  const language = detectLanguage(filePath);
+  const lines = content.split('\n');
+  
+  // Detect code patterns
+  const hasImports = /^(import|from|require|use|using)\s/m.test(content);
+  const hasExports = /^(export|module\.exports|public\s+class)/m.test(content);
+  const hasFunctions = /\b(function|def|fn|func|async|=>)\b/.test(content);
+  const hasClasses = /\b(class|interface|struct|enum|trait)\b/.test(content);
+  
+  const baseMetadata = {
+    language,
+    fileType: filePath.split('.').pop() || 'unknown',
+    hasImports,
+    hasExports,
+    hasFunctions,
+    hasClasses
+  };
   
   // If content is small enough, keep as single chunk
   if (content.length <= maxChunkSize) {
-    chunks.push({ content: `// File: ${filePath}\n${content}`, index: 0 });
+    chunks.push({
+      content: `// File: ${filePath}\n${content}`,
+      index: 0,
+      startLine: 1,
+      endLine: lines.length,
+      metadata: baseMetadata
+    });
     return chunks;
   }
   
-  // Split by lines to avoid breaking in middle of code
-  const lines = content.split('\n');
+  // Split into overlapping chunks
   let currentChunk = `// File: ${filePath}\n`;
   let chunkIndex = 0;
+  let startLine = 1;
+  let lineCount = 0;
+  let overlapBuffer: string[] = [];
   
-  for (const line of lines) {
-    // If adding this line would exceed limit, save current chunk and start new one
-    if (currentChunk.length + line.length + 1 > maxChunkSize && currentChunk.length > 50) {
-      chunks.push({ content: currentChunk.trim(), index: chunkIndex });
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    
+    // If adding this line would exceed limit, save current chunk
+    if (currentChunk.length + line.length + 1 > maxChunkSize && currentChunk.length > 100) {
+      chunks.push({
+        content: currentChunk.trim(),
+        index: chunkIndex,
+        startLine,
+        endLine: startLine + lineCount - 1,
+        metadata: baseMetadata
+      });
+      
       chunkIndex++;
-      currentChunk = `// File: ${filePath} (continued)\n`;
+      startLine = Math.max(1, i - Math.floor(overlap / 50)); // Approximate lines for overlap
+      lineCount = 0;
+      
+      // Start new chunk with overlap from previous
+      currentChunk = `// File: ${filePath} (chunk ${chunkIndex + 1})\n`;
+      
+      // Add overlap from last few lines
+      const overlapLines = lines.slice(Math.max(0, i - 5), i);
+      if (overlapLines.length > 0) {
+        currentChunk += overlapLines.join('\n') + '\n';
+      }
     }
+    
     currentChunk += line + '\n';
+    lineCount++;
   }
   
   // Don't forget the last chunk
-  if (currentChunk.trim().length > 20) {
-    chunks.push({ content: currentChunk.trim(), index: chunkIndex });
+  if (currentChunk.trim().length > 50) {
+    chunks.push({
+      content: currentChunk.trim(),
+      index: chunkIndex,
+      startLine,
+      endLine: lines.length,
+      metadata: baseMetadata
+    });
   }
   
   return chunks;
+}
+
+// Generate embeddings using Lovable AI
+async function generateEmbedding(text: string, apiKey: string): Promise<number[] | null> {
+  try {
+    // Use Lovable AI to generate a semantic representation
+    // We'll ask it to create a structured summary that we can use for matching
+    const response = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: 'google/gemini-2.5-flash',
+        messages: [
+          {
+            role: 'system',
+            content: `You are a code analysis assistant. Given a code snippet, output ONLY a JSON array of exactly 384 numbers between -1 and 1 representing the semantic meaning of the code. Focus on: purpose, patterns, functions, classes, imports, dependencies. Output ONLY the JSON array, nothing else.`
+          },
+          {
+            role: 'user',
+            content: text.slice(0, 2000) // Limit input size
+          }
+        ],
+        temperature: 0
+      }),
+    });
+
+    if (!response.ok) {
+      console.log('Embedding generation failed, skipping:', response.status);
+      return null;
+    }
+
+    const data = await response.json();
+    const content = data.choices?.[0]?.message?.content;
+    
+    if (content) {
+      try {
+        // Try to parse the JSON array
+        const embedding = JSON.parse(content);
+        if (Array.isArray(embedding) && embedding.length === 384) {
+          return embedding;
+        }
+      } catch {
+        // If parsing fails, return null
+        console.log('Could not parse embedding response');
+      }
+    }
+    
+    return null;
+  } catch (err) {
+    console.error('Embedding error:', err);
+    return null;
+  }
 }
 
 serve(async (req) => {
@@ -90,7 +225,6 @@ serve(async (req) => {
       );
     }
 
-    // Extract owner/repo from GitHub URL
     const match = repositoryUrl.match(/github\.com\/([^\/]+)\/([^\/]+)/);
     if (!match) {
       return new Response(
@@ -104,12 +238,12 @@ serve(async (req) => {
     
     console.log(`Starting indexing for ${owner}/${repoName}`);
 
-    // Initialize Supabase client
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
     const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
     const supabase = createClient(supabaseUrl, supabaseKey);
+    
+    const LOVABLE_API_KEY = Deno.env.get('LOVABLE_API_KEY');
 
-    // GitHub API headers
     const GITHUB_TOKEN = Deno.env.get('GITHUB_TOKEN');
     const githubHeaders: Record<string, string> = {
       'Accept': 'application/vnd.github.v3+json',
@@ -129,19 +263,16 @@ serve(async (req) => {
 
     if (existingRepo) {
       repoId = existingRepo.id;
-      // Clear existing chunks for re-indexing
       await supabase
         .from('code_chunks')
         .delete()
         .eq('repo_id', repoId);
       
-      // Update status
       await supabase
         .from('repositories')
         .update({ ingestion_status: 'indexing', chunks_count: 0 })
         .eq('id', repoId);
     } else {
-      // Create new repository record
       const { data: newRepo, error: createError } = await supabase
         .from('repositories')
         .insert({
@@ -179,17 +310,24 @@ serve(async (req) => {
     }
 
     const treeData = await treeResponse.json();
-    const files = treeData.tree
-      ?.filter((item: any) => item.type === 'blob' && shouldProcessFile(item.path))
-      ?.slice(0, 100) || []; // Limit to 100 files
+    const allFiles = treeData.tree?.filter((item: any) => 
+      item.type === 'blob' && shouldProcessFile(item.path)
+    ) || [];
+    
+    // Sort files by importance (prioritize main source files)
+    const priorityOrder = ['README', 'src/', 'app/', 'lib/', 'components/', 'pages/', 'api/'];
+    const files = allFiles.sort((a: any, b: any) => {
+      const aScore = priorityOrder.findIndex(p => a.path.includes(p));
+      const bScore = priorityOrder.findIndex(p => b.path.includes(p));
+      return (bScore !== -1 ? bScore : 10) - (aScore !== -1 ? aScore : 10);
+    }).slice(0, 150); // Increased limit
 
-    console.log(`Found ${files.length} files to index`);
+    console.log(`Found ${files.length} files to index (from ${allFiles.length} total)`);
 
     let totalChunks = 0;
     let processedFiles = 0;
-    const batchSize = 10;
+    const batchSize = 5; // Smaller batches for stability
 
-    // Process files in batches
     for (let i = 0; i < files.length; i += batchSize) {
       const batch = files.slice(i, i + batchSize);
       
@@ -207,8 +345,7 @@ serve(async (req) => {
           
           const content = await contentResponse.text();
           
-          // Skip very large files or binary-looking content
-          if (content.length > 50000 || content.includes('\x00')) {
+          if (content.length > 100000 || content.includes('\x00')) {
             console.log(`Skipping large/binary file: ${file.path}`);
             return [];
           }
@@ -224,11 +361,16 @@ serve(async (req) => {
       
       // Flatten and prepare for insertion
       const chunksToInsert = fileChunks.flatMap((chunks, idx) => 
-        chunks.map((chunk: { content: string; index: number }) => ({
+        chunks.map((chunk: Chunk) => ({
           repo_id: repoId,
           file_path: batch[idx].path,
           content: chunk.content,
-          chunk_index: chunk.index
+          chunk_index: chunk.index,
+          metadata: {
+            ...chunk.metadata,
+            startLine: chunk.startLine,
+            endLine: chunk.endLine
+          }
         }))
       );
       
@@ -254,12 +396,16 @@ serve(async (req) => {
           metadata: { 
             progress: Math.round((processedFiles / files.length) * 100),
             filesProcessed: processedFiles,
-            totalFiles: files.length
+            totalFiles: files.length,
+            totalAvailableFiles: allFiles.length
           }
         })
         .eq('id', repoId);
       
       console.log(`Progress: ${processedFiles}/${files.length} files, ${totalChunks} chunks`);
+      
+      // Small delay to avoid rate limits
+      await new Promise(resolve => setTimeout(resolve, 100));
     }
 
     // Mark as complete
@@ -271,6 +417,7 @@ serve(async (req) => {
         metadata: {
           filesProcessed: processedFiles,
           totalFiles: files.length,
+          totalAvailableFiles: allFiles.length,
           completedAt: new Date().toISOString()
         }
       })
