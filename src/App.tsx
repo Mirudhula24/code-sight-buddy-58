@@ -13,6 +13,7 @@ import Library from "./pages/Library";
 import Insights from "./pages/Insights";
 import Settings from "./pages/Settings";
 import SharedAnalysis from "./pages/SharedAnalysis";
+import Pricing from "./pages/Pricing";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -26,6 +27,7 @@ const App = () => (
         <BrowserRouter>
           <Routes>
             <Route path="/" element={<Index />} />
+            <Route path="/pricing" element={<Pricing />} />
             <Route path="/auth" element={<Auth />} />
             <Route path="/share/:shareToken" element={<SharedAnalysis />} />
             <Route
