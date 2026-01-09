@@ -131,23 +131,65 @@ const MermaidDiagram = ({ chart, className = "" }: MermaidDiagramProps) => {
   const handleDownloadPNG = async () => {
     if (!svgContent) return;
     
+    // Parse SVG to get actual dimensions from viewBox or width/height attributes
+    const parser = new DOMParser();
+    const svgDoc = parser.parseFromString(svgContent, "image/svg+xml");
+    const svgElement = svgDoc.querySelector("svg");
+    
+    if (!svgElement) return;
+    
+    // Get dimensions from viewBox, width/height attributes, or getBBox
+    let width = 800;
+    let height = 600;
+    
+    const viewBox = svgElement.getAttribute("viewBox");
+    if (viewBox) {
+      const parts = viewBox.split(/[\s,]+/).map(Number);
+      if (parts.length === 4) {
+        width = parts[2];
+        height = parts[3];
+      }
+    }
+    
+    // Also check width/height attributes
+    const svgWidth = svgElement.getAttribute("width");
+    const svgHeight = svgElement.getAttribute("height");
+    if (svgWidth && svgHeight) {
+      width = parseFloat(svgWidth) || width;
+      height = parseFloat(svgHeight) || height;
+    }
+    
+    // Add padding
+    const padding = 40;
+    width += padding * 2;
+    height += padding * 2;
+    
+    // Create a modified SVG with explicit dimensions and background
+    const modifiedSvg = svgContent.replace(
+      /<svg([^>]*)>/,
+      `<svg$1 width="${width}" height="${height}" style="background-color: #0f172a;">`
+    );
+    
     const canvas = document.createElement("canvas");
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
 
     const img = new Image();
     
-    // Convert SVG to base64 data URL to avoid CORS/tainted canvas issues
-    const svgBase64 = btoa(unescape(encodeURIComponent(svgContent)));
+    // Scale factor for higher resolution
+    const scaleFactor = 2;
+    
+    // Convert SVG to base64 data URL
+    const svgBase64 = btoa(unescape(encodeURIComponent(modifiedSvg)));
     const dataUrl = `data:image/svg+xml;base64,${svgBase64}`;
 
     img.onload = () => {
-      canvas.width = img.width * 2;
-      canvas.height = img.height * 2;
-      ctx.scale(2, 2);
+      canvas.width = width * scaleFactor;
+      canvas.height = height * scaleFactor;
+      ctx.scale(scaleFactor, scaleFactor);
       ctx.fillStyle = "#0f172a";
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
-      ctx.drawImage(img, 0, 0);
+      ctx.fillRect(0, 0, width, height);
+      ctx.drawImage(img, padding, padding, width - padding * 2, height - padding * 2);
       
       const pngUrl = canvas.toDataURL("image/png");
       const a = document.createElement("a");
